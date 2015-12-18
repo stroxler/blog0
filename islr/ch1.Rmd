@@ -1,0 +1,202 @@
+---
+title: "Introduction to Statistical Learning in R, Chapter 1: visualizing datasets"
+author: "Steven Troxler"
+date: "December 14, 2015"
+output: html_document
+---
+
+
+```{r, echo = FALSE}
+# These options make it so that:
+#   (a) output blocks are mixed with code, and prefixed with a comment
+#   (b) figures are sized, by default, to use most of the html witdth
+#       (you can reset fig.width and fig.height inside the {}'s at the
+#       top of any code block, if you want a particular plot to be bigger
+#       or smaller)
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+```
+
+## Introduction to the series
+
+Welcome. As a former `R` user who is out of practice, I decided a great book to work through would be [An Introduction to Statistical Learning With Applications in R](http://www-bcf.usc.edu/~gareth/ISL/) (which I'll refer to as ISLR from here on) by Gareth James, Daniela Witten, Trevor Hastie and Robert Tibshirani.
+
+It's a well-regarded book, a more application-oriented and less theoretical companion to [The Elements of Statistical Learning], an older and very famous book by Trevor Hastie, Robert Tibshirani, Jerome Friedman that serves as a guide and reference on dozens of the most popular machine learning algorithms. Thanks to the generosity of the authors and Springer, both books are freely available online (just follow the links).
+
+Unlike it's more mathematical cousin, ISLR includes discussion of `R` code for running algorithms, and moreover the authors have provided example code for the labs. They also provide a package `ISLR` on `CRAN` with most of the datasets, which you can obtain by running `install.packages("ISLR")`
+
+In this series, I want to provide more discussion around the code examples - and introduce some `R` tips and tricks the authors don't mention.
+
+## Introduction to Chapter 1
+
+In Chapter 1, the authors
+  * introduce some of the datasets they will be looking at
+  * talk about what's coming up in the rest of the book
+  * discuss the history of machine learning
+  
+There's no lab in Chapter 1 - the book's introduction to `R` is in Chapter 2. But since R is a great tool for exploring datasets, I want kick off this series by looking at the datasets. This lets us get a gentle introduction to `R` by playing with data.
+
+Along the way, I'll introduce two of my favorite packages for playing with data: `dplyr` and `ggplot2`.
+
+### Dplyr and ggplot2
+
+To add `dplyr` and `ggplot2` to your `R` session's namespace, first make sure you've run `install.packages("dplyr")` and `install.packages("ggplot2")`. Once you have, you can run these commands:
+```{r, message=FALSE}
+library(dplyr)
+library(ggplot2)
+```
+
+Both of these packages are written by Hadley Wickham, a developer who's written many popular data-analysis tools for `R`. The `dplyr` package makes slicing and dicing data - for example, using command similar to SQL when appropriate - fast and easy. It provides nicer printing of `R` `data.frame`s, which you can access by replacing a `data.frame` `df` with `tbl_df(df)`.
+
+It also uses the `maggritr` package's `%>%` operator, which is similar to `F#`s pipe operator: the expression `a %>% f(b, c)` is equivalent to `f(a, b, c)`. This can lead to much more readable code: for example compare `h(g(f(a), b), c)` to `f(a) %>% g(b) %>% h(c)`.
+
+The `ggplot2` package stands for "Grammar of Graphics". `R` has some wonderful plots for looking at raw data and mathematical objects built-in, but `ggplot` has a very powerful domain specific plotting language that makes plots of `data.frame`s very easy, and the plots it produces are *very* pretty (in my opinion, of course). It's so popular, in fact, that the theme and the DSL have both been ported to `python`!
+
+## The `Wage` dataset
+
+The `Wage` dataset covers wages and various socioeconomic variables for working men.
+```{r}
+full_wages = tbl_df(ISLR::Wage)
+dim(full_wages)
+colnames(full_wages)
+```
+
+There are a lot of variables here. Our goal is to produce the plots shown in the book, so let's focus on  the variables `age`, `year`, and `education`. We can extract a `data.frame` with just these using the `select` function from `dplyr`:
+```{r}
+wages = full_wages %>% select(wage, education, year, age)
+```
+
+In ISLR, this dataset is mostly used for *regression* models where we take a bunch of variables and try to predict a numeric outcome - in this case, `wage`.
+
+Let's use `ggplot2` to get some visualizations of how `wage` relates to the other variables:
+
+### `wage` and `education`
+
+We'll start with boxplots showing how `education` interacts with `wage`. To make a plot using `ggplot2`, we create a bare plot by passing the `ggplot()` function a dataset, and then we build the plot up. In this case, we want to map the `education` and `wage` variables to the *aesthetics* `x` and `y`, and add boxplots to the graph:
+```{r}
+ggplot(wages) + aes(x = education, y = wage) + geom_boxplot()
+```
+
+This is nice, but ISLR has colors in its boxplots. Who doesn't love colors? In `ggplot2`, the fill color is just another aesthetic (`color` is also an aesthetic, but it only colors the borders of boxplots):
+```{r}
+ggplot(wages) + aes(x = education, y = wage, fill=education) + geom_boxplot()
+```
+
+Notice how nice the colors look. `ggplot2`s colors are designed based on studies of how we perceive color, in order to give us a balanced visualization of the data.
+
+Before moving on, let's look at one more plot. Boxplots lose a lot of information about the shape of a distribution, and often it helps to see this information. We can get a nice smooth estimate of the density using a *violin plot*, which in `ggplot2` means replacing `geom_boxplot()` with `geom_violin`:
+```{r}
+ggplot(wages) + aes(x = education, y = wage, fill=education) + geom_violin()
+```
+
+Notice how we now can see that the advanced degree holders actually split into two groups, one that makes only a little more than typical college grads and another that makes much more. With the boxplot, all we saw were some outliers, and not a clear picture of how they relate to the overall distribution.
+
+### `wage` and `year`
+
+Next let's look at how `year` and `wage` interact. The authors show the data as a scatterplot, with a straight-line fit going through it. In `ggplot2`, we accomplish this by adding `geom_point()` to the plot, and `stat_smooth()`
+```{r}
+ggplot(wages) + aes(x = year, y = wage) + geom_point() + stat_smooth(method=lm)
+```
+
+This plot is actually pretty hard to read, because of how the points are stacked on top of one another. We can improve the visualization by adding a *jitter* to the the values, which spreads them out a bit. To do this, we just replace `geom_point` with `geom_jitter`:
+```{r}
+ggplot(wages) + aes(x = year, y = wage) + geom_jitter() + stat_smooth(method=lm)
+```
+
+### `wage` and `age`
+
+The one other plot in ISLR is a scatterplot of `wages` versus `age`:
+```{r, message=FALSE}
+ggplot(wages) + aes(age, wage) + geom_point() + stat_smooth()
+```
+
+This plot looks pretty good, but the points are still stacked up on each other a bit. We could fix this by adding a jitter like we did when plotting `year` versus `wage`. Another way of getting a nice visualization is to add *alpha*, or transparency, to the points and make them a bit bigger. This produces a cloud-like effect where we can see the parts of the plot with more and less data:
+```{r, message=FALSE}
+ggplot(wages) + aes(age, wage) + geom_point(alpha=0.15, size=5) + stat_smooth()
+```
+
+### looking at more than two variables at once
+
+Often we want to look at more than just two variables in one plot, in which case we need to make clever use of colors or multiple side-by-side plots. For making side-by-side plots, `ggplot2` has a a concept called a `facet`. See what happens if we take the `age` and `wage` scatterplot and add a `facet_wrap` on `education`:
+```{r}
+ggplot(wages) + aes(age, wage) + geom_point(size=1, aes(color=education)) + facet_wrap(~ education)
+```
+
+
+## The `Smarket` dataset
+
+The stock market data gives today's market movement, along with a measure of trading volume and several normalized lags in market movement. Let's take a peek:
+```{r}
+smkt = tbl_df(ISLR::Smarket)
+smkt
+```
+
+In finance, usually we would want to predict the amount by which the stock will move in upcoming days, but ISLR uses this example dataset mainly for classification problems: can we predict based on previous days' returns whether the market will go up or down?
+
+This data is not easy to visualize. This is pretty typical of stock market data, where the correlations are usually very low. Chapter 1 of ISL has boxplots of the market direction against the preceding days' movements for several lags. Since they aren't very informative plots, we'll just look at the one-lag case.
+
+And instead of boxplots, which we've seen already, let's make *density plots* (which are sort of like smooth histograms) of the distributions of `Lag1`, the preceding day's return, conditional on whether the market went up or down. In `ggplot2`, we do this by using `geom_density`, and mapping `Direction` to an aesthetic such as `fill`. Note that if we don't one one plot to hide the other, we need to use `alpha` here:
+```{r}
+ggplot(smkt) + aes(Lag1, fill=Direction, alpha=0.5) + geom_density()
+```
+
+
+## The `NCI60` Gene Expression dataset
+
+### A first look
+
+The NCI60 gene expression dataset has a matrix with 64 observations of 6830 gene expression measurements on cancer patients. This matrix is found in the `$data` entry of the list, while the `$labs` entry is a length-64 character vector with the type of cancer.
+```{r}
+nci60 = ISLR::NCI60
+class(nci60)
+names(nci60)
+class(nci60$data)
+dim(nci60$data)
+nci60$labs
+```
+
+In practice, researchers might want to use a dataset like this - which has labels for the cancer type - in classification. But often these labels are missing in practice, and researchers need to try to invent their own classes. This problem is called *clustering*, and we'll look at it in later chapters of ISLR.
+
+A dataset like this which has *true* labels available is great for playing around with clustering models, since the true labels give us a way to judge whether our clustering algorithm works in practice.
+
+Aside from clustering, another type of algorithm which is useful in both machine learning and everyday data analysis is *dimensionality reduction*, where we take many variables and try to produce just a few that contain most of the information. One of the most popular of these dimension-reduction algorithms is called *principal components analysis*, or PCE.
+
+### The code for PCA (not important to understand now)
+
+
+We'll see how PCA works later in ISLR. Here's a tiny introduction for the brave:
+  * we first normalize our data; otherwise the principal components tend to just tell us which columns are the most spread out.
+  * Then, we use the *singular value decomposition* of our data matrix to express it as $$ X = U D V^T, $$ where $V$ is 6830 by 64, and $U$ and $D$ are 64 by 64.
+  * Here the columns of $V$ and $U$ are unit vectors and orthogonal. We can think of this factorization as splitting up the linear transformation given by $X$ into a change of basis, encoded by $V$, a diagonal scaling, and another change of basis given by $U.
+  * the principal components of the data are the columns of $U$, and the "magnitude" of these principal components are given by $V$.
+
+We can get
+```{r}
+# normalize the variables before running pca
+colMus = colMeans(nci60$data)
+colSds = apply(nci60$data, 2, sd)
+normalized = (nci60$data - colMus) / colSds
+# get the svd of the matrix
+duv = svd(normalized)
+```
+
+### Visualizing the results of PCA
+
+The magnitude of the principle components give us a sense of how "important" they are. We like to see a sharp "elbow" in the plot, but unfortunately here - as in many cases with real-world data - the plot has a smooth curve:
+```{r}
+qplot(1:length(duv$d), duv$d,
+      xlab = "principal component", ylab = "diagonal scale factor")
+```
+
+Above, we used a new function from `ggplot2` called `qplot`, which is convenient when you want to make a graph of x-versus-y for data that isn't part of a `data.frame`.
+
+When we express our data in terms of the top few principle compenents, we get a collapsed view which tries to preserve most of the variation in the data with just a few dimensions. We'll see this in more detail later, but for now let's take a look:
+```{r}
+qplot(duv$u[,1], duv$u[,2], size=3,
+      xlab = "1st component", ylab = "2nd component",
+      color=nci60$labs)
+```
+
+Notice that looking at these first two principal components, we already can see patterns and groups of related cancers in the data.

@@ -1,0 +1,186 @@
+---
+title: "Installing R and Rstudio on Ubuntu"
+author: "Trox"
+date: "December 5, 2015"
+output: html_document
+---
+
+Installing the newest version of `R` and `RStudio` on Ubuntu is essential for a
+good stats environment: for example, the default verion of `R` you get if you
+just `apt-get install` R is too old to support `dplyr`!
+
+Since many statisticians getting started with Ubuntu might not be comfortable
+finding their way around the command line to install a new version of `R`, I
+want to share my setup script for Ubuntu 14.04.
+
+# Ubuntu 14.04 script to install R, RStudio, and some key packages
+
+I'll start with the script. If you are curious about what the script does,
+read below where I break down the commands in more detail. This script should
+either be run as root or under `sudo`.
+```bash
+# install dependencies for R and some essential packages
+apt-get update  
+apt-get install -y libcurl4-openssl-dev  
+apt-get install -y libgstreamer-plugins-base0.10-0  
+apt-get install -y gdebi-core  
+apt-get install -y libapparmor1  
+apt-get install -y  libxml2-dev  
+apt-get install -y libcurl4-gnutls-dev  
+
+# Install r itself using the repository from CRAN
+echo 'deb http://cran.cnr.Berkeley.edu/bin/linux/ubuntu trusty/' >> /etc/apt/sources.list
+apt-get update
+apt-get install -y --force-yes r-base r-base-dev
+
+# Set up the RStudio CRAN mirror as default
+cat >> /etc/R/Rprofile.site << EOF  
+local({  
+  # add MASS to the default packages, set a CRAN mirror
+  old <- getOption("defaultPackages"); r <- getOption("repos")
+  r["CRAN"] <- "http://cran.rstudio.com"
+  options(defaultPackages = c(old, "MASS"), repos = r)
+})
+EOF
+
+# install key packages
+
+cat > /tmp/installs.R << EOF
+# basic development packages
+install.packages("devtools")  
+install.packages("roxygen2")  
+install.packages("testthat")  
+install.packages("knitr")
+
+# key packages data wrangling and visualization
+install.packages("dplyr")  
+install.packages("tidyr")  
+install.packages("plyr")  
+install.packages("stringr")  
+install.packages("ggplot2")  
+EOF
+R -f /tmp/installs.R
+rm /tmp/installs.R
+
+# install RStudio-server
+wget http://download2.rstudio.org/rstudio-server-0.99.467-amd64.deb  
+gdebi -n rstudio-server-0.99.467-amd64.deb 
+```
+
+When you finish this, RStudio will be listening on port 8787 of
+your computer. If you are using a desktop, go to
+`localhost:8787` in the browser to see it; if it is an EC2 instance
+or on some other cloud, you'll need to ensure that that port is
+visible to you (in EC2, this means configuring the security group)
+and you'll need to look up its url and/or ip address.
+
+If you are on a cloud provider and only have a root account - which
+is common on, for example, base EC2 AMIs, then you will also need
+to create a user. See the discussion in the "Installing RStudio"
+section below for commands to do this.
+
+
+# Breakdown of the contents
+
+## Install libraries
+
+Almost any script you expect to run on new computers should start with
+`apt-get update`, since the urls your computer uses can go state (typically
+you get 404 errors when this happens; the same can happen with other
+package managers like `homebrew` on OSX or `yum` on RedHat-based distros).
+
+The libraries we install are used by `R` packages; most of them are needed
+because some of the most useful packages either access the web or need
+libraries to help parse common fileformats.
+```bash
+apt-get install -y libcurl4-openssl-dev libgstreamer-plugins-base0.10-0 \
+                   gdebi-core libapparmor1 libxml2-dev libcurl4-gnutls-dev
+```
+
+## Install R itself
+
+As mentioned at the top, we cannot install `R` using the normal repository, or
+we get a version too old for real work. Instead, we add the UC Berkeley CRAN
+mirror's debian repository to the places our computer will look for packages:
+```bash
+echo 'deb http://cran.cnr.Berkeley.edu/bin/linux/ubuntu trusty/' >> /etc/apt/sources.list
+apt-get update
+```
+
+Now we can install `R` directly:
+```bash
+apt-get install -y --force-yes r-base r-base-dev
+```
+
+A note on security: the `--force-yes` option is needed for my script in order
+to bypass warnings about using a new repository. In general, this is unsafe, but
+if you trust UC Berkeley's CRAN mirror (you have to trust somebody!) then it is
+okay to run.
+
+## Install essential R packages
+
+Admittedly everyone will have a different packages they consider essential,
+and for many applications I would add more packages. But at a minimum, I need
+these packages for my `R` workflow:
+
+```R
+install.packages("devtools")  
+install.packages("roxygen2")  
+install.packages("testthat")  
+install.packages("knitr")
+
+# key packages data wrangling and visualization
+install.packages("dplyr")  
+install.packages("tidyr")  
+install.packages("plyr")  
+install.packages("stringr")  
+install.packages("ggplot2") 
+```
+
+The bash script creates a temp file form this `R` code in a *here document*,
+which is a way of writing text to a file from a shell script, and then runs it.
+You could also run a bunch of separate `R -e "install.packages(...)"` commands,
+or use `R CMD INSTALL`. I prefer to use an `R` script since that's the most
+familiar to anyone used to installing packages from inside of `R`.
+
+A heads-up: these installs will take a while unless your computer is quite fast.
+Several of them involve `C++` code that can take a while to compile.
+
+## Install RStudio-server
+
+### Install the software itself
+
+We install RStudio from a `.deb` file (which is the binary format Ubuntu
+uses for software; you can think of it as a bit like a `.dmg` containing
+an app on OSX, or an installer wizard in Windows) which we obtain from
+the rstudio.org website using `wget`:
+```bash
+wget http://download2.rstudio.org/rstudio-server-0.99.467-amd64.deb  
+gdebi -n rstudio-server-0.99.467-amd64.deb 
+```
+
+The install process starts RStudio for you; it should already
+be listening on port 8787. To start / stop it in the future, run
+`rstudio-server start` and `rstudio-server stop` from the command line.
+
+### Create a new user if necessary
+
+If you are working with a brand new computer in the cloud and
+you are logged in as `root`, you'll need to also create a non-root
+user; `RStudio` (sensibly) doesn't allow access to root users:
+```bash
+# create an RStudio user (you may not want this!)
+useradd rstudio  
+mkdir /home/rstudio  
+chown rstudio:rstudio /home/rstudio  
+passwd rstudio <<EOF  
+rstudio  
+rstudio  
+EOF  
+```
+
+*Warning* this script is creating an `rstudio` user whose password
+is `rstudio`. This is okay if your computer is secure, but if it
+is accessible on the open internet *don't do this*! Instead, use
+the same commands, except just type `passwd rstudio` normally,
+and enter a real, secure password for the user.
