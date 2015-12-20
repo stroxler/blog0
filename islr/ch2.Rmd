@@ -1,50 +1,107 @@
 ---
-title: "ch2"
-author: "Trox"
-date: "November 30, 2015"
+title: "Introduction to Statistical Learning 2: R programming and plotting functions"
+author: "Steven Troxler"
+date: "December 19, 2015"
 output: html_document
 ---
 
 ```{r echo=FALSE, message=FALSE}
+# These options make it so that:
+#   (a) output blocks are mixed with code, and prefixed with a comment
+#   (b) figures are sized, by default, to use most of the html witdth
+#       (you can reset fig.width and fig.height inside the {}'s at the
+#       top of any code block, if you want a particular plot to be bigger
+#       or smaller)
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
 library(ggplot2)
 library(dplyr)
-library(magrittr)
 ```
 
-## Plotting functions on the plane
+# Introduction
 
-The R lab from Chapter 2 of ISLR covers three plotting approaches for functions
-on the plane (that is, functions $f(x,y)$ of two real variables). To demonstrate,
-let's first define a function, the axes of a grid on which to plot it, and an evaluation
-of the function on that grid:
-```{r}
-f <- function(x, y) {
-  x + x * y + x ** 2
+Welcome to the second installment of my series going through *An Introduction to Statistical Learning with Applications in R* (ISLR). [Last post](http://www.steventroxler.com/blog/?p=12), we went through some plots of the data to follow along with Chapter 1.
+
+This post, tagging along with Chapter 2, we will go through how to write functions in R and how to make plots of functions (as opposed to plots of data, which we covered last week).
+
+Once we've gone through these basics, we'll walk through an example of an R program looking at the bias-variance trade-off in linear models via simulation.
+
+## R functions
+
+Functions in R look like this:
+```r
+f <- function(x) {
+  ... do some stuff with x to get y ...
+  y
 }
+```
+
+The return value of a function is the value of its last expression. You can use the `return` if you want to break out of the function early, but it isn't needed otherwise.
+
+In preparation for our work on plotting, let's write a function that computes the sum of squares for a point $(x, y) \in \mathbb R ^2$:
+```{r}
+parabaloid <- function(x, y) {
+ x ** 2 + y ** 2
+}
+```
+
+We can check that it works:
+```{r}
+parabaloid(1, 1)
+parabaloid(2, 3)
+```
+
+
+## Plotting functions in R
+
+In the last blog post, we saw how to plot data using `ggplot2.` In this post, we'll look at how to plot 1d and 2d functions, which is useful for machine learning because we might want to look at loss functions or debug our code with visual help.
+
+### Plotting 1d functions
+
+If you want to plot a 1d function, you can use the simple `plot` function. By default, `plot` makes a scatterplot, but we can draw a curve by using `type = 'l'`:
+```{r}
+x = 1:100 / 100
+plot(x, sqrt(x), type='l')
+```
+
+If we want to plot multiple functions side by side, we need to know two more plotting tools. The first is
+that we can add color to a plot using the `col` argument:
+```{r}
+plot(x, x + 5, type='l', col='blue')
+```
+
+The second is that each call to `plot` redraws the window. If we want to add points or curves to a plot window we already made, we should use the `lines` or `points` functions:
+```{r}
+plot(x, sqrt(x), type='l', col='blue')
+lines(x, x ** (1/3), col='green')
+points(x, 0.1 * rnorm(length(x)) + 0.5, col='red')
+```
+
+### Plotting 2d functions
+
+The Chapter 2 R lab also introduces how to plot functions of both `x` and `y` in the plane. There are three main approaches: perspective plots which try to show the 3d structure, contour plots, and image plots which use color to indicate the function value.
+```{r}
 x <- seq(-1, 1, .01)
 y <- seq(-1, 1, .01)
-feval <- outer(x, y, f)
+feval <- outer(x, y, parabaloid)
 ```
+Above, we used the built-in `outer` function, which - when evaluated with no arguments - forms an outer product `outer(x, y) == x %o% y`, but when given a bivariate function instead evaluates that function on the product space.
 
-Above, we used the built-in `outer` function, which - when evaluated with no arguments - forms
-an outer product `outer(x, y) == x %o% y`, but when given a bivariate function instead
-evaluates that function on the product space.
-
-Then we can obtain a color-coded "image" plot by running
+To get an image plot, use the `image` function:
 ```{r}
 image(x, y, feval)
 ```
 
-This type of plot is very commonly used in genetic analyses, although machine learning
-papers tend to prefer contour and 3d plots. There are varous keywords you can use to modify
-this plot, as is the case with the other plots we show below.
+This type of plot is often used in genetic analyses.
 
 To get a contour plot, use the same call with `contour`:
 ```{r}
 contour(x, y, feval)
 ```
 
-Finally, to get a pseudo-3d plot, use the `persp` function:
+Finally, to get a pseudo-3d plot, use the `persp` function. The perspective plot plots a grid, so you don't usually want to use quite as many points. Hence here we take "strides" (a term borrowed from `python`) to pick out a smaller set of points than we used in the image and contour plots:
 ```{r}
 strides <- seq(1, length(x), 5)
 xstrides <- x[strides]
@@ -53,258 +110,176 @@ fstrides <- feval[strides, strides]
 persp(xstrides, ystrides, fstrides)
 ```
 
-Note that we used a less-dense grid when using a perspective plot; this is because we want
-to be able to see the grid squares with a perspective plot; a dense grid makes the plot solid.
+## The bias-variance tradeoff: a simulation study of polynomial regression
 
+### Least-squares in two paragraphs
 
-## Loading data from a csv file (plus system calls)
+In a regression problem, we often wish to find $E[y|x] = f(x)$, where $f$ is unknown and we have samples $x_n, y_n$ for $n=1,...,N$. In linear regression, we simplify the problem by saying that - for vectors $x_n,$ the expected value of $y_n$ takes the form $f(x_n) = x_n^T \theta$ for a vector $\theta$ of *coefficients*.
 
-The next thing we'll cover is loading data from a csv file. On the ISLR website, the
-authors have posted a dataset on automobiles, called Auto.csv. We can obtain this data
-with a shell command from the command line, but since we are currently working from knitr,
-we'll instead demonstrate running the shell command from R using `system`. First, we
-navigate to our project directory; in this case, the `R/islr` subdirectory of the `lp`
-repository. Then, we curl the url to obtain the csv data in the working directory.
+A common solution to this problem - we'll cover how to solve it using R packages in Chapter 3 - is to use the *least squares* estimator. This is the value of $\theta$ for which the sum of squared errors, $\sum_n (y_n - x_n^T\theta)^2,$ is as small as possible. If we line up the $x_n$ as rows of a matrix $X$, it can be shown that the least squares estimate of $\theta$ - which we call $\hat \theta$ - has the form
+$$
+\hat\theta = (X^TX)^{-1}X^T y,
+$$
+where $y$ is the column vector of the $y_n$.
+
+### Least squares polynomial regression
+
+In a *least squares polynomial regression* problem, we have observations $x_n, y_n,$ and we hypothesize that the expected value $E[y|x]$ takes the form 
+$$
+E[y|x] = \theta_0 + \theta_1 x + \theta_2 x^2 + ... + \theta_p x^p.
+$$
+
+If we want to estimate this problem using least-squares, we can cast it as a regular linear regression. Take the initial observations $x_n$, and form from them row vectors
+$$
+\tilde x_n = (1, x_n, x_n^2, ... x_n^p)
+$$
+Our nonlinear, polynomial regression in the $x_n$ are actually linear in the $\tilde x_n$, so if we stack up these row vectors in a matrix $X$, once again $\hat \theta = (X^T X)^{-1}X^T y.$
+
+### Code for polynomial regression
+
+Let's write our polynomial regression function next. It should take in a vector `x` of covariates, a vector `y` of observations, and a polynomial degree `p`. It should spit out a least squares estimate `thetahat` of the best polynomial fit.
+
+Before we write the full polynomial regression function, let's make a building block: the function which converts a vector `x` of covariates into a full matrix `X` with the polynomial terms:
 ```{r}
-system("curl www-bcf.usc.edu/~gareth/ISL/Auto.csv > Auto.csv")
-```
-
-Now, we can load the data using `read.csv`:
-```{r}
-auto <- tbl_df(read.csv("Auto.csv", stringsAsFactors=FALSE, header=T, na.strings="?"))
-str(auto)
-auto <- na.omit(auto)
-str(auto)
-```
-
-## Viewing data
-
-First, let's make a histogram and then a density plot
-to examine the distribution of `mpg`:
-```{r}
-ggplot(auto) + aes(mpg) + geom_bar()
-ggplot(auto) + aes(mpg) + geom_density()
-```
-
-
-Next, let's take a look at the relationship between `mpg` and `cylinders`:
-```{r}
-ggplot(auto) + aes(cylinders, mpg) + geom_jitter(position = position_jitter(width = 0.1))
-```
-
-We can also look at all the variables in pairs using a *scatterplot matrix*. `GGalley` has a great-looking
-scatterplot matrix function `ggpairs` based on `ggplot2`, but unfortunately it is too slow to be worth it
-even given the great appearance (I'm honestlky not sure why its so slow on mid-sized datasets). So the easiest
-way to get a quick-and-dirty scatterplot matrix is with the `lattice` package:
-```{r}
-lattice::splom(select(auto, -name))
-```
-
-(Unfortunately, a scatterplot matrix needs a big graph, so it doesn't show up very well in the knitr
-output. But if you have a big monitor and run this interactively, you can see a lot of patterns.)
-
-An interesting trick for interactive analysis (which has no analogue in a report, so we disable the
-output here) is to use the built-in `plot` and `interactive` functions when poking around a smallish
-dataset. The `interactive` call will let you click on a few data points, and then when you hit
-`ESC`, it will print the index of the rows corresponding to the pooints you clicked on, plus add labels
-based on the third vector you passed in:
-```r
-attach(auto)
-plot(horsepower, mpg)
-identify(horsepower, mpg, name)
-```
-
-The `jgr` R gui tool and the `shiny` package both have more interactive tools like this, which can be
-quite valuable when exporing data sets - especially messy datasets where you want to isolate and
-investigate unusual data.
-
-
-## Investigating `origin` and simplifying the data
-
-Before we perform demo KNN algorithms, let's dig into the data just a bit more.
-Most of the variables seem pretty self-explanatory, but `origin` is a bit mysterious,
-although the name suggests it might have to do with where the car was made.
-
-### Investigating `origin`
-
-We could probably find a complete description of `auto` if we poked around the internet.
-But since we are trying to learn R's features just as much as analyze data, let's see if
-we can figure it out ourselves...
-
-##### Investigating using functional constructs
-
-Instead, let's try using some of `map`-style (by `map`-style, I mean similar to what many other
-languages would call `map`) functions in R. Ultimately, our goal is to print side-by-side pairs of
-`origin` and `name` for various automobiles.
-
-To do this, we will use `mapply`, which is a multi-variate built-in form of `apply`, and `plyr`s
-`l_ply`, which is similar to the `foreach` construct in many other language - rather than mapping
-over a collection and returning its output, the `plyr::X_ply` functions iterate over a collection
-with side-effects and return nothing.
-
-```{r}
-set.seed(30)
-on_pairs <- mapply(function(o, n) list(o = o, n = n), auto$origin, auto$name,
-                   SIMPLIFY = FALSE)
-pairs_to_print <- sample(on_pairs, 15)
-pair_to_string <- function(pair) sprintf("%d %s", pair$o, pair$n)
-plyr::l_ply(pairs_to_print, function(pair) { print(pair_to_string(pair)) })
-```
-
-We can see pretty easily from this output that `origin` is the continent of ourigin: 1 for
-North America, 2 for Europe, and 3 for Asia.
-
-##### Investigating using idiomatic R
-
-It's well worth learning the basics of the apply functions, and (to be preferred most of the time)
-the `plyr` package. But in R we typically prefer to use vectorized operations on data frames
-for investigation, rather than either imperative or functional programming. See how much more
-concisely we can express the work done above using `dplyr`:
-```{r}
-set.seed(30)
-auto %>% sample_n(15) %>% select(origin, name)
-```
-
-### Making a simpler dataset
-
-By using `dplyr`s `select` and `transmute` functions, we can create a `region` variable that
-is more descriptive than `origin`, and also extract just a few features to use for our KNN
-demo. Note that the function we pass to `transmute` should be vectorized, which is typical of
-R functionality.
-
-
-Let's pull out a few interesting columns of the `auto` dataset for us to work with, and make
-a quick barplot of the region of origin:
-```{r}
-origin_to_region <- function(origin) {
-  region <- character(length(origin))
-  region[] <- NA
-  region[origin == 1] <- "North America"
-  region[origin == 2] <- "Europe"
-  region[origin == 3] <- "Asia"
-  region
+covariates_to_matrix <- function(x, p) {
+  X = matrix(0., nrow=length(x), ncol=p+1)
+  for (p_ in 0:p) {
+    X[,p_+1] = x ** (p_)
+  }
+  X
 }
-auto1 <- (auto %>% select(origin, horsepower, mpg, weight)
-               %>% mutate(region = origin_to_region(origin))
-               %>% select(-origin)
-               %>% sample_n(nrow(auto)))
-auto1
 ```
 
-Note that in the process, we randomized the order of the data, which lets us split
-it into training and test sets later on without requiring randomization.
+Note that we didn't build up `X` using `cbind`. Doing so is a common R idiom, but `cbind` creates a whole new array by copying data each time, so if we have a lot of data and `p` is large, the copies can be very expensive.
 
-While we have a simplified dataset, let's take a look at the distribution of `region`:
+Now we can write the polynomial regression function
 ```{r}
-qplot(auto1$region)
-```
-
-
-## K-Nearest Neighbors in R
-
-We are going to use the `knn` function from the `class` library for KNN classification:
-
-```{r}
-library(class)
-```
-
-Checking the docs, we see that it uses Euclidean distance without normalizing, so before
-running an KNN algorithms, we should form a normalized data frame:
-```{r}
-normalize <- function(x) { (x - mean(x)) / sd(x) }
-auto_n = auto1 %>% transmute(region = region,
-                             horsepower_n = normalize(horsepower),
-                             mpg_n = normalize(mpg),
-                             weight_n = normalize(weight))
-```
-
-For our simple example, rather than using full-on cross validation we can just use
-a 50-50 split into training and test data:
-```{r}
-set.seed(29532)
-train <- 1:(nrow(auto_n)/2)
-test <- (nrow(auto_n)/2):nrow(auto_n)
-auto_tr <- auto_n[train,]
-auto_ts <- auto_n[test,]
-```
-
-(NOTE: if you are coming from python, don't forget the trailing commas; in R - unlike
-pydata libraries, you cannot select rows by pretending you are indexing a 1d data structure)
-
-### Classification using `class::knn`
-
-#### Using our own training / test split
-```{r}
-tr_X <- as.matrix(select(auto_tr, -region))
-ts_X <- as.matrix(select(auto_ts, -region))
-tr_Y <- auto_tr$region
-ts_Y <- auto_ts$region
-estimate_knn_accuracy <- function(k) {
-  yhat <- knn(train = tr_X, test = ts_X, cl = tr_Y, k = k)
-  mean(yhat == ts_Y)
+polynomial_least_squares <- function(x, y, p) {
+  X = covariates_to_matrix(x, p)
+  thetahat = solve(t(X) %*% X, t(X) %*% y)
+  thetahat
 }
-ks <- 1:20
-accuracy <- plyr::aaply(ks, 1, estimate_knn_accuracy)
-qplot(ks, accuracy, geom="line")
 ```
 
-Here we see that accuracy seems best with `k == 6`.
-
-#### Using the built-in `knn.cv` function
-
+And of course, to be useful our model needs a way to make predictions on new data:
 ```{r}
-X <- as.matrix(select(auto_n, -region))
-y <- auto_n$region
-estimate_knn_accuracy_cv <- function(k) {
-  yhat <- knn.cv(train = X, cl = y, k = k)
-  mean(yhat == y)
+polynomial_prediction <- function(new_x, thetahat) {
+  p = length(thetahat) - 1
+  X = covariates_to_matrix(new_x, p)
+  X %*% thetahat
 }
-ks <- 1:20
-accuracy <- plyr::aaply(ks, 1, estimate_knn_accuracy_cv)
-qplot(ks, accuracy, geom="line")
 ```
 
-We see two things here: first, the accuracy seems slightly higher. Second,
-accuracy peaks for a higher value of k, `k == 9`. There's a lot of 
-randomness here, but this is what we would expect as `n` grows.
+### Generating data
 
-(Why a higher `k` with more data? Usually you want model freedom to increase
-with more data. But KNN is a special case - for fixed `k`, the model freedom
-automatically increases with more data, so actually the more data we have, the
-more we might expect the optimal `k` to increase, in order to get a better
-bias-variance tradeoff).
+In real-life machine learning applications, we don't know the true distribution of the data. The model we wind up estimating is almost always a simplification. To create an analogous situation with simulated data in our polynomial regression, we'll use a cosine curve as the true function: $f(x) = \cos(x)$.
 
-### Regression using `FNN::knn.reg`
 
-The `FNN` package has a variety of KNN type algorithms, including a classifier
-much like `class::knn` (actually, I'm not sure that they aren't the same function;
-their parameters seem identical).
-
-```{r message=FALSE}
-library(FNN)
-```
-
-We will use `FNN::knn.reg` to run a regression-type KNN for predicting `mpg` from
-`horsepower` and `weight`.
-
-Unlike the KNN classifier, there is no built-in cross validation for KNN regression,
-so we will just use our training / test split.
-
+Let's start with an R function to generate our $x_n$s. We'll just use standard normal samples:
 ```{r}
-y_tr <- auto1[train,]$mpg
-y_ts <- auto1[test,]$mpg
-X_tr <- as.matrix(select(auto_tr, -region, -horsepower_n))
-X_ts <- as.matrix(select(auto_ts, -region, -horsepower_n))
-estimate_knn_sse <- function(k) {
-  out <- knn.reg(train = X_tr, test = X_ts, y = y_tr, k = k)
-  mean((out$pred - y_ts) ** 2)
+generate_xs <- function(N) {
+  rnorm(N)
 }
-ks <- 1:20
-sse <- plyr::aaply(ks, 1, estimate_knn_sse)
-qplot(ks, sse, geom="line")
 ```
 
-Here we see that the minimum SSE is acheived with `k == 1`, which is the most
-flexible possible model (although with a different random
-seed, at least one of my runs showed a minimum at `k == 3`, so this isn't 
-certain to happen).
+Given the $xs$ we can generate random $y$s. We'll use a standard deviation of 0.25 so that the curve will be obvious in plots:
+```{r}
+generate_ys <- function(xs) {
+  cos(xs) + 0.25 * rnorm(length(xs))
+}
+```
+
+We can make a new function to generate both the $x_n$ and $y_n$ by wrapping these together in an R `list`
+```{r}
+generate_xys <- function(N) {
+  xs <- generate_xs(N)
+  ys <- generate_ys(xs)
+  list(xs = xs, ys = ys)
+}
+```
+
+Before we actually run these functions, it's a good idea to set the state of R's random number generator, so that our results will be repeatable
+```{r}
+set.seed(42)
+```
+
+
+### A function to look at the bias-variance tradeoff via simulation
+
+The code for performing this simulation is longer than most of the functions we've written before. We could break it up into well-named parts given time -- and we should, if this were a production codebase that needed maintenance. But to get a flavor of what R code looks like before it's been polished, let's just take a look at one big function for producing bias and variance estimates in our simulation problem:
+```{r}
+compute_bias_and_variance <- function(N, min_p, max_p, ntrial) {
+  # generate test data
+  n_test = 1000
+  test_x = generate_xs(N = n_test)
+  e_test_y = cos(test_x)
+  
+  # pre-make the matrix for fitted values. This saves
+  # the computer from needing to allocate / garbage collect it
+  # over and over again.
+  fit_to_test_x = matrix(0., nrow = ntrial, ncol = n_test)
+  
+  # make vectors to hold our bias and variance estimates for
+  # each p
+  bias2_per_p = numeric(max_p - min_p + 1)
+  variance_per_p = numeric(max_p - min_p + 1)
+  
+  # for each p...
+  for (p in min_p:max_p) {
+    # make a test_X matrix by expanding to the polynomial
+    # covariates
+    test_X = covariates_to_matrix(test_x, p)
+    
+    # for each trial...
+    for (trial in 1:ntrial) {
+      # generate x and y, estimate thetahat, and save the fitted
+      # values relative to test_x
+      data = generate_xys(N)
+      thetahat = polynomial_least_squares(data$xs, data$ys, p)
+      fit_to_test_x[trial,] = test_X %*% thetahat
+    }
+    
+    # now that the trials are all finished, compute the
+    # average fitted value for each entry of test_x across all
+    # trials, and the variance across all trials
+    pointwise_mean = colMeans(fit_to_test_x)
+    pointwise_var = apply(fit_to_test_x, 2, var)
+    
+    # our estimates of the bias and variance are averages across
+    # all the test_x values. We use `bias2` for the bias since
+    # we are actually computing the square bias.
+    bias2 = mean((pointwise_mean - e_test_y) ** 2)
+    variance = mean(pointwise_var)
+    
+    # we need to save the bias and variance estimates
+    bias2_per_p[p - min_p + 1] = bias2
+    variance_per_p[p - min_p + 1] = variance
+  }
+  list(ps = min_p:max_p,
+       bias2 = bias2_per_p,
+       variance = variance_per_p)
+}
+```
+This function is long and ugly, but if you dive into statistics and machine learning problems, you'll see a lot of code like it. I've tried to comment it well - always a good idea if you want to share your code or remember what it does in six months.
+
+I'd like to point out one line that might be particularly confusing: `pointwise_var = apply(fit_to_test_x, 2, var)`. This line says to take `fit_to_test_x` and, for each column (the `2`), take that column and pass it to the `var` function. The output is a 1d vector with the variance of each column.
+
+### Looking at the output of our simulation
+
+Let's run the simulation for polynomials of degree up to 8:
+```{r}
+bv = compute_bias_and_variance(60, 1, 6, 7000)
+```
+
+We want to produce a plot that decomposes the MSE of our estimation into bias and variance. The MSE is the sum of the bias and variance, so we can get it from `bv`. We plot the bias in blue, the variance in orange, and the MSE in green.
+```{r}
+plot(bv$ps, bv$bias2, type='l', col='blue', xlab='p', ylab='squared error')
+lines(bv$ps, bv$variance, col='orange')
+lines(bv$ps, bv$bias2 + bv$variance, col='green')
+```
+
+Here we can clearly see the U-shaped error, where the bias drops toward zero as our model becomes more complex, but the variance increases. The best tradeoff looks like it happens around $p=2$. Note that this answer depends on `N = 50`. For larger values of `N`, if you play around with this simulation, you'll see that the best choice of `p` increases.
+
+### Next post
+
+Chapters 1 and 2 were the introductory chapters of ISLR. Next post, we'll start going through how to use R packages to work with different statistical learning models, starting with linear regression.
