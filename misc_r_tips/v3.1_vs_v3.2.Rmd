@@ -1,0 +1,26 @@
+# Noting a problem I had bumping R versions with `brew`
+
+I ran into a problem when bumping my version of R from 3.1 to 3.2.  In hindsight, I think what happened is I used
+```
+brew cask install R
+```
+to install 3.1, and then I installed 3.2 with
+```
+brew install R
+```
+
+As a result, version 3.1 sat around in `/Library/Frameworks`, whereas version 3.2 wound up in a subdirectory of `/usr/local`. 
+
+
+When I then bumped my version of Rstudio using `brew cask install rstudio`, I had a world of problems. Suddenly, trying to run a simple `ggplot2` plot produced crazy errors:
+```
+ggplot(cars)
+#> Error in list2env(members, envir = e) : names(x) must be a character vector of the same length as x
+```
+
+I'm still not 100% sure what happened, but what I do know is that I started looking at the output of `.libPaths()` in the console versus Rstudio, and then realized `Rstudio` was running against version 3.1 still. Somehow the packages had gotten all mixed up. A nice solution would probably be to figure out how `Rstudio` chooses a version of `R` to use, but being the gambling man I am I tried a scary hack:
+```
+sudo rm -rf /Library/Frameworks/R.framework
+```
+
+Amazingly, this did no long-term damage and worked like a charm. `RStudio` immediately recognized that version 3.1 wasn't there and started loading 3.2, and I'm singing [Happy](https://www.youtube.com/watch?v=y6Sxv-sUYtM) as I merrily analyze my data once more.

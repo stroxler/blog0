@@ -1,5 +1,5 @@
 ---
-title: "Introduction to Statistical Learning 2: R programming and plotting functions"
+title: "Introduction to Statistical Learning 2: functions, plots, and the bias-variance tradeoff"
 author: "Steven Troxler"
 date: "December 19, 2015"
 output: html_document

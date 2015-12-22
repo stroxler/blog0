@@ -1,0 +1,226 @@
+---
+title: 'An Introduction to Statistical Learning, Part 3: Linear Regression'
+author: "Steven Troxler"
+date: "December 20, 2015"
+output: html_document
+---
+
+Welcome to the third post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the [last post](http://www.steventroxler.com/blog/?p=36) we looked at the bias-variance tradeoff for linear regression with a hand-coded regression function (which was also an introduction to R functions). In this post, we'll follow along with the Chapter 3 lab in ISLR, and introduce the `lm` function, which R uses for linear regression.
+```{r echo=FALSE, message=FALSE}
+# These options make it so that:
+#   (a) output blocks are mixed with code, and prefixed with a comment
+#   (b) figures are sized, by default, to use most of the html witdth
+#       (you can reset fig.width and fig.height inside the {}'s at the
+#       top of any code block, if you want a particular plot to be bigger
+#       or smaller)
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+At this point we are starting to trace the labs in ISLR. Two of the authors, Trevor Hastie and Rob Tibshirani, led a MOOC at Stanford going through their book. You can find links to all the materials, including videos of the labs, [here](http://www.r-bloggers.com/in-depth-introduction-to-machine-learning-in-15-hours-of-expert-videos/). The lectures and labs are quite good and I recommend them; these posts largely trace through the same material, although I've made some small changes and introduced some additional tools according to my tastes.
+
+## The Boston dataset
+
+In this lab, we'll use the `Boston` dataset from the `MASS` library:
+```{r}
+boston <- MASS::Boston
+names(boston)
+```
+
+This dataset measures a number of variable for different neighborhoods in Boston. The variable we'll be looking at is `medv`, which is the median value of owner-occupied homes in $1000's (how can you find that out? Type in `?MASS::Boston` at the R console). Let's look at a density plot:
+```{r}
+ggplot(boston) + aes(x=medv) + geom_density()
+```
+
+## Simple linear regression: `medv` vs `lstat`
+
+The `lstat` variables is the percentage of the neighborhood population which is "lower status" according to a model of socioeconomic status.
+
+Let's make a model for predicting `medv` from `lstat`. First, we should make a scatterplot
+```{r}
+p = ggplot(boston) + aes(x=lstat, y=medv) + geom_point()
+p
+```
+
+It looks like the relationship here is probably nonlinear; in fact, there seems to be a curve. Since `lstat` is bounded below by 0, this isn't surprising. We will proceed with a linear model in this section, and explore a nonlinear one later.
+
+Also, there's reason to question data quality: quite a few neighborhoods seem to have a `medv` of 50, which is the maximum value. This seems unlikely to be correct; since this series is on statistical learning rather than data science we won't pursue this further, but it's possible that the data is *censored*, that is, that median household values higher than $50k were thresholded to $50k. This might affect our choice of model, if this were a serious study.
+
+In R, we can fit a linear regression using the `lm` function:
+```{r}
+model0 <- lm(data=boston, medv ~ lstat)
+```
+
+The second entry of our call uses an R *formula*, which takes the form `y ~ x0 + x1 + ...`. This tells R to make a model where all of the `x` variables are used to predict `y`. In this case, we are using `lstat` to predict `medv`. We don't explicitly say to include an intercept, but R does this automatically by default.
+
+### Looking at regression statistics
+
+Let's take a look at the output using the `summary` function:
+
+```{r}
+summary(model0)
+```
+
+There's a lot of information here. If you read Chapter 3 of ISLR, they explain the output in detail, but the high points are:
+  * The matrix of coefficients gives the value, standard error, `t` statistic value, and a `p`-value based on the `t` statistic.
+  * These `p`-values indicate the probability of seeing a coefficient as large as we did, if the true coefficient were zero. We can use this as a measure of how likely it is that a variable is "important" for making predictions.
+  * The `R-squared` statistic says the percentage of the variance in the `medv` variable which is explained by a linear relationship with `lstat`. This can often be used as a one-number summary of how well we fit the training data.
+  * The `F-statistic` and its `p`-value are similar to the `t`-statistics, but they refer to the entire model rather than just one coefficient: the `p`-value is the probability of seeing coefficients as large as we did, if in reality all of the coefficients were zero.
+  
+All of these probabilities are only approximate when the true errors around the best linear fit are not normal with constant variance, so we must always beware of taking them too seriously unless we've carefully validated the assumptions (which we have not here). Nonetheless, when a p-value is extremely small, in practice it means that the variables are almost certainly related.
+
+We can get a confidence interval for each coefficient with `confint`:
+```{r}
+confint(model0)
+```
+
+### Plotting the regression
+
+We can look at a plot of the model in `ggplot2` by adding a `geom_abline`:
+```{r}
+p + geom_abline(aes(intercept = model0$coefficients[1], slope = model0$coefficients[2]))
+```
+
+or alternatively we could use `stat_smooth`, which uses `ggplot2`s own wrapper around `lm` and adds a confidence band around the line.
+```{r}
+p + stat_smooth(method='lm')
+```
+
+### Making predictions
+
+To make a prediction, we can use R's `predict` function. We first make a `data.frame` with new values of `lstat`, and then we can pass it to `predict`:
+```{r}
+new_data <- data.frame(lstat=c(10, 15, 20, 25))
+predict(model0, new_data)
+```
+
+By adding `interval = "confidence"` argument, we can ask for a confidence interval as well as just a point estimate for each `x`:
+```{r}
+predict(model0, new_data, interval="confidence")
+```
+
+## Adding a nonlinear term
+
+### Making polynomial regression models
+
+We've seen that the relationship between `medv` and `lstat` looks nonlinear. What happens if we add a quadratic term to the model?
+```{r}
+model1 <- lm(medv ~ lstat + (lstat ** 2), data = boston) 
+```
+
+The `I` is necessary, it tells R to tread `lstat ** 2` as a term in the model; if you leave it off, it won't include a quadratic term. We could also have built `model1` from `model0` using the `update` function:
+```{r}
+model1 <- update(model1, ~ . + I(lstat ** 2))
+```
+
+which tells R to add a quadratic term to `model0`. There's one final way to make a model with polynomial terms, which is to use a call to `poly` in the formula, for example
+```{r}
+model1 <- lm(data = boston, medv ~ poly(lstat, 2))
+```
+
+which includes every lstat term of order up to `2` in the model.
+
+### Looking at statistics
+
+Let's take a look:
+```{r}
+summary(model1)
+```
+
+We can compare nested models like these with the `anova` function, which uses F-statistics to ask whether there's statistical evidence of a more complex model providing a better fit (although again, proper use of ANOVA in practice requires thinking carefully about model assumptions, which we have not done)
+
+```{r}
+anova(model0, model1)
+```
+
+Note that both the `t`-statistic of the `lstat ** 2` term in the summary and the `F` statistic indicate that the second-order term is strongly significant.
+
+### Plotting a polynomial regression
+
+There is no `geom` for adding a quadratic curve directly to a `ggplot2` plot, but we can set the formula used by `lm` in `stat_smooth` to add a plot of a polynomial regression to `ggplot`.
+```{r}
+p + stat_smooth(method='lm', formula = y ~ poly(x, 2))
+```
+
+Note that rather than `medv` and `lstat`, we use `y` and `x` in our formula. This is because when `ggplot2` delegates to `lm`, it uses its own copy of the `data.frame` we passed in, which has variables names according to aesthetics, rather than the original variable names.
+
+## Multiple regression
+
+Lets add `age`, which has the proportion of buildings built before 1940, to our model. We can add a different variable to a linear model, we can use the same types of commands we used to add the `lstat **2` term, one of the following:
+```{r}
+model2 <- lm(data=boston, medv ~ lstat + age)
+model2 <- update(model0, ~ . + age)
+```
+
+As with the simple and quadratic regressions, we can look at statistics via `summary`:
+```{r}
+summary(model2)
+```
+
+We can use `anova` to compare this to model0, although we can't directly compare to `model1` because `anova` only works for comparing nested models.
+```{r}
+anova(model0, model1)
+```
+
+The `confint` and `predict` functions work just as they did for `model0`. Unfortunately, plotting multivariate regressions is tricky. With just two variables it's possible to make a 3d perspective plot.
+
+### Plotting multiple regression
+
+Perhaps more useful, though, and also usable in higher dimensions, is a `coplot`:
+```{r}
+coplot(medv ~ lstat | age, data=boston)
+```
+```{r}
+coplot(medv ~ age | lstat, data=boston)
+```
+
+What `coplot` does is it breaks the data up into chunks based on the conditioning variable (to the right of the `|`), and makes a scatterplot for just that data.
+
+It's also possible to replace a `coplot` with a conditional plot in which the `y` variable is adjusted for the value of all other predictors. I hope to discuss this in a future blog post, after the ISLR series finishes.
+
+## Diagnostic plots
+
+An R `lm` output knows how to plot itself. When you call `plot` repeatedly on an `lm`, it runs through four different diagnostic plots. We can see all of them together if we first partition the plotting area:
+```{r}
+par(mfrow=c(2, 2))
+plot(model2)
+```
+
+These plots aren't as nice as ggplot's but they show a lot of information for little effort. Let's break down what's in them. The `Residuals vs Fitted` plot shows the errors on the training data as `y`, with the fitted value for `x`. Telltale signs to look for in this plot are:
+    * increasing spread as the fitted value gets larger: this often means that we would do better using the log or square root of `y`.
+    * Curvature in the plot, which usually means we are missing some nonlinearity.
+  
+Our plot of `model2` seems to show a bit of both of these features. The `Scale-Location` plot is very similar, except it plots the square root of the residuals. This is helpful for focusing on how their spread changes, without worrying about curvature.
+
+The `Normal Q-Q` plot is a normal quantile plot. You can learn more about these in statistics courses, but basically when the data curves away from a straight line, it means the residuals don't look normal. This means that unless your sample size is large, `p`-values using the `t` and `F` statistics may be misleading. We can see a clear curve here, indicating that our errors have a long right tail (which is very common, especially if a log model would be better).
+
+The `Residuals vs Leverage` plot requires more knowledge to understand. But a high-leverage point is a point with unusual `x` values that cause it to get a lot of importance inside the regression model. When you have points that have large residuals and leverage both, it can mean that outliers have a lot of effect on your model. We see some high leverage points here, especially the one labeled `215` (which indicates which row of the data produced that point).
+
+It's possible to generate a marginal plot for one regressor (I'll try to cover this in a future post), and in a two-variable model like this we can use perspective plots.
+
+## Models with qualitative variables
+
+We'll close off with a quick look at running linear models with qualitative variables. For this, we'll use the `Carseats` dataset from `ISLR`, which looks at carseat sales.
+```{r}
+carseats = tbl_df(ISLR::Carseats)
+carseats
+```
+
+We'll make a model that includes the qualitative variable `ShelveLoc`, which gives the shelf location of the carseat. Creating a linear model with qualitative variables works the same as with quantitative variables in R:
+```{r}
+model3 <- lm(data = carseats, Sales ~ Advertising + ShelveLoc)
+summary(model3)
+```
+
+Under the hood, linear models always use quantitative variables. R is converting our qualitative `ShelveLoc` variable into dummy variables behind the scenes. We can see the values of this dummy variable with the `contrasts` function:
+```{r}
+contrasts(carseats$ShelveLoc)
+```
+
+## Next Post
+
+In the next post, we'll look at a cousin of linear regression that works for classification, called *logistic regression*.

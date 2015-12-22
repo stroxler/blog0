@@ -165,7 +165,6 @@ Aside from clustering, another type of algorithm which is useful in both machine
 
 ### The code for PCA (not important to understand now)
 
-
 We'll see how PCA works later in ISLR. Here's a tiny introduction for the brave:
   * we first normalize our data; otherwise the principal components tend to just tell us which columns are the most spread out.
   * Then, we use the *singular value decomposition* of our data matrix to express it as $$ X = U D V^T, $$ where $V$ is 6830 by 64, and $U$ and $D$ are 64 by 64.
