@@ -1,0 +1,123 @@
+---
+title: 'An Introduction to Statistical Learning, Part 4: Logistic Regression'
+author: "Steven Troxler"
+date: "December 21, 2015"
+output: html_document
+---
+
+Welcome to the fourth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the [last post](http://www.steventroxler.com/blog/?p=44), we looked at the `lm` function in R and how we can use it for linear regression. This time, we'll look a the related `glm` function, specifically for logistic regression.
+```{r echo=FALSE, message=FALSE}
+# These options make it so that:
+#   (a) output blocks are mixed with code, and prefixed with a comment
+#   (b) figures are sized, by default, to use most of the html witdth
+#       (you can reset fig.width and fig.height inside the {}'s at the
+#       top of any code block, if you want a particular plot to be bigger
+#       or smaller)
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## The `Smarket` dataset
+
+We looked at the `Smarket` dataset in an earlier post.
+```{r}
+smarket <- tbl_df(ISLR::Smarket)
+```
+
+I'm a big fan of `ggplot2` as you know by now, but a handy built-in R function for looking at data is the `pairs` function, which makes a quick showing of all the variables' two-way scatterplots:
+```{r}
+pairs(smarket, col=smarket$Direction)
+```
+
+## Creating a logistic regression:
+
+We run logistic regression as follows:
+```{r}
+model0 <- glm(
+  Direction~Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume,
+  data=smarket, family=binomial
+)
+```
+
+The `family` input is important: the `glm` function in R fits *generalized linear models* which extend ideas from linear regression to general *exponential families*. Since our data is yes/no data, we tell the `glm` function that we want to use the `binomial` (or *Bernoulli*) distribution.
+
+Let's take a look at the model. We can use the `summary` function, as we did for linear models:
+```{r}
+summary(model0)
+```
+
+The stock-market data shows low correlations between variables, which is typical of financial markets. Here we see that none of the coefficients in our model are statistically significant.
+
+We can make predictions on new data using the `predict` function as we saw for linear models. Following the lab for Chapter 3, though, we note that we can also call `predict` without new data. In this case, the output is 'predictions' or 'fitted values' for the test data. Let's see what portion of the training data our model predicts as Up vs Down.
+```{r}
+fitted_probs <- predict(model0, type='response')
+fitted_updown <- ifelse(fitted_probs > 0.5, "Up", "Down")
+table(fitted_updown, smarket$Direction)
+```
+
+Above, we used a new construct from R. The `ifelse` function takes a Boolean vector as its first argument, and returns a vector which has the second argument wherever the Boolean vector was `TRUE` and the third argument elsewhere.
+
+We see that on the training data - where we hope to do fairly well - we still only get the right answer a bit more than half the time. Again, all evidence is that our model is at best weak, and at worst may just be fitting noise. We can also measure the empirical accuracy on the training set
+```{r}
+mean(fitted_updown == smarket$Direction)
+```
+
+So on the training set we do a little better than 50-50. But the model is perfectly optimized on the training data, so we know it is fitting at least some noise. We next turn our attention to a more interesting question: is our model able to predict the future?
+
+## Dividing data int training and test sets
+
+In a situation like this, where the validity of our model is very much in doubt, it's often a good idea to split the data into a *training set* and a *test set*. With some data, we would randomly assign points to one of these two sets, but with time-series data, it's most interesting whether we can predict the future.
+
+To this end, let's split our data into before and after 2005:
+```{r}
+train_df = smarket %>% filter(Year < 2005)
+test_df = smarket %>% filter(Year >= 2005)
+```
+
+(This code looks different from the lab because I'm using `dplyr::filter` and `magrittr`.)
+
+Next, lets make a model on only the early data, and test it on the later data:
+```{r}
+model <- glm(
+  Direction~Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume,
+  data=train_df, family=binomial
+)
+
+test_estimated_probs <- predict(model, type='response', newdata=test_df)
+test_updown_guesses <- ifelse(test_estimated_probs > 0.5, "Up", "Down")
+mean(test_updown_guesses == test_df$Direction)
+```
+
+It looks now like our model actually does worse than random guessing.
+
+We can also try different models, looking for one that does well. There's a danger to doing this in practice, since by randomly trying models on the test data we will by chance eventually do better than random guessing. But let's try a simpler model, with only two lags, just for fun:
+```{r}
+model <- glm(
+  Direction~Lag1 + Lag2,
+  data=train_df, family=binomial
+)
+
+test_estimated_probs <- predict(model, type='response', newdata=test_df)
+test_updown_guesses <- ifelse(test_estimated_probs > 0.5, "Up", "Down")
+mean(test_updown_guesses == test_df$Direction)
+```
+
+Now we guess the market direction a bit more than 55% of the time, which isn't bad.
+
+## Backtesting
+
+If we were actually trading in the stock market, we wouldn't fit a model at the end of 2005 and run it for a year. Instead, we would fit the model every night, and use it to trade the next day. To really test a model, we would want to simulate this process on historical data.
+
+Doing so requires code - which we would probably want to make a *framework*, so that we could plug different models into the same high-level components - to make sure we handle the data properly. This type software is known as *backtesting software*, and making a good backtesting system is a tricky problem.
+
+A simple example of why this is tricky: often we have a bunch of stocks, say in 2015, for we've collected data going back ten years. But if we actually traded in the past, we would have also had stocks that have since gone bankrupt. This problem is called *survivorship bias*. These kinds of biases can lead to subtle problems with our model - for example survivorship bias can make us think small and risky stocks are better than they really are, since we see only the ones that didn't disappear.
+
+I spent a couple of years working as a Researcher / Developer for a small equity hedge fund. My main responsibilities were working on the backtesting system and trying out new models; I hope to write some posts later of some cool example programs based on what I did.
+
+## Next post
+
+This logistic regression tutorial was our first look at a *classification algorithm*, for predicting outcomes which are qualitative rather than quantitative. Next post we will look at a different classification algorithm called Linear Discriminant Analysis.

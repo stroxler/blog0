@@ -1,0 +1,105 @@
+---
+title: 'An Introduction to Statistical Learning, Part 4: Logistic Regression'
+author: "Steven Troxler"
+date: "December 21, 2015"
+output: html_document
+---
+
+Welcome to the fifth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the [last post](http://www.steventroxler.com/blog/?p=48), we learned how to perform logistic regression using the `glm` function. This week, we will look at the `MASS` package's function for performing linear discriminant analysis. We'll use the same `Smarket` dataset.
+```{r echo=FALSE, message=FALSE}
+# These options make it so that:
+#   (a) output blocks are mixed with code, and prefixed with a comment
+#   (b) figures are sized, by default, to use most of the html witdth
+#       (you can reset fig.width and fig.height inside the {}'s at the
+#       top of any code block, if you want a particular plot to be bigger
+#       or smaller)
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## Linear Discriminant Analysis
+
+What is linear discriminant analysis, or LDA? It's what's known as a "probabilistic generative" model for classification.
+
+The logistic regression we looked at last post is what we call a "probabilistic discriminant method" because it makes not statement about the distribution of the coefficients $X$, and instead seeks to find a function to estimate the conditional probability
+$$
+P(Y=1|X).
+$$
+
+A probabilistic generative approach, on the other hand, seeks to model the randomness in $X$ by estimating
+$$
+P(X|Y).
+$$
+
+Since the raw counts of $Y$ give us estimates of $P(Y)$, we can then determine our estimate
+$$
+P(Y|X)
+$$
+using Bayes' rule:
+$$
+P(Y=1|X) = \frac{P(Y=1)P(X|Y=1)}
+                {P(Y=1)P(X|Y=1) + P(Y=0)P(X|Y=0)}
+$$
+
+In linear discriminant analysis, we estimate $P(X|Y)$ by fitting a multivariate Gaussian to it. The 'linearity' of the estimate comes from assuming that each of the conditional Gaussian distributions has the same covariance, so that the decision boundaries are hyperplanes in between the conditional mean estimates
+
+### The formulas
+
+To estimate $P(X|Y)$, we first estimate the conditional means
+$$
+\mu_0 := P(X|Y=0)
+$$
+and
+$$
+\mu_1 := P(X|Y=1)
+$$
+by simply taking the average of all the $X$ values for which $Y$ is 1 or 0, respectively.
+
+The shared covariance estimate is then given by
+$$
+\frac{1}{M} \sum_m (x_m - \mu_{y_m}) (x_m - \mu_{y_m})^{T},
+$$
+where $\mu_{y_m}$ is $\mu_0$ or $\mu_1$, depending on the value of $y_m.$
+
+Note that we don't *have* to assume the covariances of the two groups are the same. We often do because this assumption is what makes LDA linear, which makes it cheap to use when there are many dimensions. But if we did not make this assumption, we would have a different probabilistic generative model, which is known in the literature as *quadratic* discriminant analysis, or QDA.
+
+## Using the `MASS` package's implementation of LDA
+
+Lets try LDA out on the `Smarket` dataset we looked at last post. The function to make an LDA model is the `MASS::lda` function. As before, we'll isolate just the early data so that we can evaluate the predictive power in 2005. The `MASS` package makes this easy for us by having a `subset` argument, so we don't have to break up the data set ourselves:
+```{r}
+library(MASS)
+smarket <- tbl_df(ISLR::Smarket)
+model <- lda(Direction~Lag1+Lag2, data = smarket, subset = Year < 2005)
+```
+
+We can take a look at the model, which gives us some summary statistics, the means of the two fitted groups, and the coefficient vector used to discriminate between them (which can be thought of as very similar to the $\theta$ coefficient vector from logistic regression - in fact, someday I hope to do a post illustrating the relationship between logistic regression and LDA)
+```{r}
+model
+```
+
+Now let's predict year 2005:
+```{r}
+test_df = smarket %>% filter(Year >= 2005)
+predicted <- predict(model, test_df)
+class(predicted)
+```
+
+To gauge the predictive accuracy we can make a table of the true Up/Down labels compared with what we predicted:
+```{r}
+table(predicted$class, test_df$Direction)
+```
+
+This table gives us our *confusion matrix*, we can also look at the *predictive accuracy*
+```{r}
+mean(predicted$class == test_df$Direction)
+```
+
+Once again, it seems we were able to guess slightly more than half the days' directions correctly.
+
+## Next post
+
+I hope you've enjoyed this short walk through performing LDA with `MASS` and `R`. Next post we'll look at one more classification algorithm, K-nearest-neighbors.
