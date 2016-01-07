@@ -1,0 +1,111 @@
+---
+title: 'Introduction to Statistical Learning part 6: Cross Validation'
+author: "Steven Troxler"
+date: "January 6, 2016"
+output: html_document
+---
+
+Welcome to the sixth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the last few posts, we looked at regression and classification using several different models.
+
+This post, we'll return to the horsepower vs miles per gallon estimation on the `Auto` dataset, and look at how to work with cross-validation in R.
+
+## The Auto dataset
+
+Let's start out by taking a look at the auto data:
+```{r, message=FALSE}
+library(ggplot2)
+library(dplyr)
+auto <- tbl_df(ISLR::Auto)
+ggplot(auto, aes(x=horsepower, y=mpg)) + geom_point()
+```
+
+We see a strong relationship between horsepower and miles per gallon, but it isn't quite linear. We are going to use cross-validation to help us fit a polynomial to this data using linear regression. To do this, we'll use the `cv.glm` function from the `boot` package.
+
+## Cross validation
+
+Cross validation is one of the key ideas in machine learning, because it lets us evaluate models that are too complex to use classical statistical hypothesis tests.
+
+### Training and test sets
+
+To validate our model, we break our data into parts. We use some of the data for training a model, and the rest to judge how good the fit is. This lets us measure the best value of hyperparameters like the number of polynomial terms.
+
+We can't easily evaluate a hyperparameter like the polynomial degree the training data, because the fit on the training data always gets better when we make the model more complex. For linear regression, we can try to use hypothesis tests or AIC to control for this, but in more complicated models we might not have even that.
+
+But if we have a test dataset to measure fit on, this problem isn't so serious: by making an overly complex model and overfitting the training data, we'll see that our test data gets worse.
+
+### Cross-validation folds
+
+When a model is expensive to fit and there is a lot of data, often we might just split the data into a training and test set as described above. But when we do that, we lose some information because the split is arbitrary. In K-fold cross-validation, we partition the data into $K$ chunks instead, and we use each chunk as a training set once, while using the $K-1$ other chunks as the training data.
+
+For example, in three-fold cross validation we would split our dataset into three equal chunks. We would take the first two chunks to train a model, then measure the error on the third chunk. Then we'd train another model on the first and last chunk, fitting it on the middle. Finally, we'd train on the last two chunks and fit on the first, and then add up all the errors.
+
+One common type of cross-validation is leave-one-out cross validation, where $K = M$, the number of data points. For a complex model, this type of cross validation is very expensive since we have to fit the model many, many times. It also tends to be a slightly poorer estimate of fit, for reasons that have to do with the variance of the cross-validation error estimate. But as we'll see, for linear regression we can compute the leave-one-out cross validation error almost for free, which makes it appealing.
+
+It's important that the split be meaningful. Most of the time, it should be random, although there are exceptions like time-series where people use block cross-validation, keeping related points together. (The split we used on the `Smarket` data in the last two posts is an example of this).
+
+## Using cross-validation for linear models with `boot::cv.glm`
+
+For generalized linear models, we can get cross-validation using the `boot` package's `cv.glm` function. The output is a list, and the `$delta` entry contains the estimated loss (which for a linear model is just the mean squared error).
+
+Let's try it out, and estimate the error for a linear regression of `mpg` on `horsepower` using ten-fold cross validation. Note that when we call `glm` without getting a family, it fits a plain linear model; we need to use `glm` instead of `lm` because `cv.glm` expects a `glm` object as input.
+```{r}
+library(boot)
+model <- glm(mpg ~ horsepower, data=auto)
+cv.glm(data = auto, glmfit = model, K = 10)$delta
+```
+
+Note that there are two outputs for `$delta`. This is because in general, cross-validation overestimates the error. Why? Well, each of our folds uses a training dataset smaller than the full dataset, so we tend to do a little worse than we would with more data. For the special case of generalized linear models, we can use statistical theory to guess at the difference between these two errors. The first number in `$delta` is the actual mean squared error; the second, slightly smaller number is a bit smaller is a guess at what the average mean-squared error would be when using the full data for training.
+
+## Fast leave-one-out cross-validation for linear models
+
+Recall that the ordinary least squares estimator in linear regression takes the form
+$$
+\hat \beta = (X^T X)^{-1}X^T Y.
+$$
+From this, we see that
+$$
+\hat y = X (X^T X)^{-1}X^T Y = HY
+$$
+where $H = X (X^T X)^{-1}X^T$ is called the "hat matrix." If we were to re-fit the model leaving out the $i$th observation, the resulting mean squared error can be expressed as
+$$
+\frac{1}{n} \sum_i \frac{ (x_i - y_i)^2 }{ (1 - H_{ii})^2 },
+$$
+that is, the error depends only on the residuals of the full model and the hat matrix's diagonal elements.
+
+In `R`, the diagonal elements are known as "influence", and we can obtain them from a linear model object by calling the `lm.influence` function and obtaining the `$h` entry in the output list. This lets us make a very fast leave-one-out cross validation function:
+```{r}
+cv.lm.loo <- function(model) {
+  mean((residuals(model) / (1 - influence(model)$h)) ** 2)
+}
+```
+
+We can check this by comparing it to the output of `glm.fit` where we don't specify `K`:
+```{r}
+model <- glm(mpg~horsepower, data=auto)
+cv.lm.loo(model)
+cv.glm(auto, model)$delta
+```
+
+(Note that the `cv.glm` call is quite slow. The `cv.glm` function brute-forces it's estimate, re-fitting the model for every fold. It does so because for non-linear generalized linear models like logistic regression, the hat matrix trick doesn't work).
+
+## Using cross-validation to determine the best polynomial degree
+
+Let's now look at the problem of choosing a polynomial degree. We'll plot the leave-one-out cross validation estimates of mean squared error in blue, and the ten-fold estimates in green.
+```{r}
+degrees = 1:12
+cv_errors_loo <- rep(0, length(degrees))
+cv_errors_fld <- rep(0, length(degrees))
+for (d in degrees) {
+  model <- glm(mpg~poly(horsepower, d), data=auto)
+  cv_errors_loo[d] = cv.lm.loo(model)
+  cv_errors_fld[d] = cv.glm(data = auto, glmfit = model, K = 10)$delta[1]
+}
+plot(degrees, cv_errors_loo, col = 'blue', type='l')
+lines(degrees, cv_errors_fld, col = 'green')
+```
+
+What we see is pretty similar for both methods of cross validation: the error drops a lot when we use a quadratic function rather than a linear one, and then it mostly levels out until we get to very high-degree polynomials. It starts to go back up around degree 9 or 10; this is another example of overfitting, where our model is too complex and starts to chase noise in the training data.
+
+## Next Post
+
+In this post we covered one method of sampling the data to get error estimates, cross-validation. This is widely used in machine learning for all kinds of models. Next post, we will look at a different sampling approach often used in statistical models, called the *bootstrap*.

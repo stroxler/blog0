@@ -1,0 +1,149 @@
+---
+title: 'An Introduction to Statistical Learning, Part 5: Linear Discriminant Analysis and K Nearest Neighbors'
+author: "Steven Troxler"
+date: "December 21, 2015"
+output: html_document
+---
+
+Welcome to the fifth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the [last post](http://www.steventroxler.com/blog/?p=48), we learned how to perform logistic regression using the `glm` function. This week, we'll look at two more approaches for classification: linear discriminant analysis and K-nearest-neighbors, using the same `Smarket` dataset.
+
+```{r echo=FALSE, message=FALSE}
+# These options make it so that:
+#   (a) output blocks are mixed with code, and prefixed with a comment
+#   (b) figures are sized, by default, to use most of the html witdth
+#       (you can reset fig.width and fig.height inside the {}'s at the
+#       top of any code block, if you want a particular plot to be bigger
+#       or smaller)
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## Linear Discriminant Analysis
+
+What is linear discriminant analysis, or LDA? It's what's known as a "probabilistic generative" model for classification.
+
+The logistic regression we looked at last post is what we call a "probabilistic discriminant method" because it makes not statement about the distribution of the coefficients $X$, and instead seeks to find a function to estimate the conditional probability
+$$
+P(Y=1|X).
+$$
+
+A probabilistic generative approach, on the other hand, seeks to model the randomness in $X$ by estimating
+$$
+P(X|Y).
+$$
+
+Since the raw counts of $Y$ give us estimates of $P(Y)$, we can then determine our estimate
+$$
+P(Y|X)
+$$
+using Bayes' rule:
+$$
+P(Y=1|X) = \frac{P(Y=1)P(X|Y=1)}
+                {P(Y=1)P(X|Y=1) + P(Y=0)P(X|Y=0)}
+$$
+
+In linear discriminant analysis, we estimate $P(X|Y)$ by fitting a multivariate Gaussian to it. The 'linearity' of the estimate comes from assuming that each of the conditional Gaussian distributions has the same covariance, so that the decision boundaries are hyperplanes in between the conditional mean estimates
+
+### The formulas
+
+To estimate $P(X|Y)$, we first estimate the conditional means
+$$
+\mu_0 := P(X|Y=0)
+$$
+and
+$$
+\mu_1 := P(X|Y=1)
+$$
+by simply taking the average of all the $X$ values for which $Y$ is 1 or 0, respectively.
+
+The shared covariance estimate is then given by
+$$
+\frac{1}{M} \sum_m (x_m - \mu_{y_m}) (x_m - \mu_{y_m})^{T},
+$$
+where $\mu_{y_m}$ is $\mu_0$ or $\mu_1$, depending on the value of $y_m.$
+
+Note that we don't *have* to assume the covariances of the two groups are the same. We often do because this assumption is what makes LDA linear, which makes it cheap to use when there are many dimensions. But if we did not make this assumption, we would have a different probabilistic generative model, which is known in the literature as *quadratic* discriminant analysis, or QDA.
+
+## Using the `MASS` package's implementation of LDA
+
+Lets try LDA out on the `Smarket` dataset we looked at last post. The function to make an LDA model is the `MASS::lda` function. As before, we'll isolate just the early data so that we can evaluate the predictive power in 2005. The `MASS` package makes this easy for us by having a `subset` argument, so we don't have to break up the data set ourselves:
+```{r}
+library(MASS)
+smarket <- tbl_df(ISLR::Smarket)
+model <- lda(Direction~Lag1+Lag2, data = smarket, subset = Year < 2005)
+```
+
+We can take a look at the model, which gives us some summary statistics, the means of the two fitted groups, and the coefficient vector used to discriminate between them (which can be thought of as very similar to the $\theta$ coefficient vector from logistic regression - in fact, someday I hope to do a post illustrating the relationship between logistic regression and LDA)
+```{r}
+model
+```
+
+Now let's predict year 2005:
+```{r}
+test_df = smarket %>% filter(Year >= 2005)
+predicted <- predict(model, test_df)
+class(predicted)
+```
+
+To gauge the predictive accuracy we can make a table of the true Up/Down labels compared with what we predicted:
+```{r}
+table(predicted$class, test_df$Direction)
+```
+
+This table gives us our *confusion matrix*, we can also look at the *predictive accuracy*
+```{r}
+mean(predicted$class == test_df$Direction)
+```
+
+As with logistic regression, it seems we were able to guess slightly more than half the days' directions correctly.
+
+## K-Nearest Neighbors
+
+What is K-nearest-neighbors, or KNN? It's a method where we have some notion of the distance between points $x$. When we want to pick a good guess $y$ for the value of $Y$ at some point $x_0$, we take our sample and we find the $k$ points nearest to $x_0$. We then pick the most common $Y$ value associated with those points.
+
+It's one of the most flexible and powerful classification (and regression: instead of picking the most common $Y$ as in classification, we can just average them when $Y$ is a numeric value). With enough data, it can uncover the true value of any function. It's one of the most commonly used algorithms for some types of problems, and also very easy to understand and explain (which can be very important in a business setting, where explaining a model to non-statisticians might be essential).
+
+There are disadvantages to KNN. If we don't have a clever way of organizing our data, it can be expensive to search through the whole dataset when predicting a new value. It is also so flexible that it is very much subject to the curse of dimensionality, and doesn't usually work well when there are more than a few features in $X$.
+
+
+## Using the `class` library's `knn` function
+
+We'll explore the KNN algorithm in `R` by once again looking at the `Smarket` dataset. Unlike most of the tools we've used for classification up till now, the `knn` function does *not* spit out a model which we can use for prediction. Instead, we hand it the training and test data at the same time.
+
+Although this seems quite different, it makes sense: unlike the other models we've worked with, the `knn` function does not find a small set of parameters from which to make predictions. Instead, it uses all the data to predict new points. So it wouldn't be very effective to spit out a `model` object like `glm` does: this object would have to copy all the data!
+
+It also expects a matrix of data rather than a `data.frame`. This is unusual for `R`, but the different libraries often have different interfaces. To find out how to use a new function, remember you can type `?func` in the R console to bring up its documentation.
+
+Once we've made our predictions, we can look at them using the same `table` and `mean` calculations as before to see the confusion matrix and accuracy.
+```{r}
+library(class)
+smarket <- tbl_df(ISLR::Smarket)
+train_df <- smarket %>% filter(Year < 2005)
+test_df <- smarket %>% filter(Year >= 2005)
+predictions <- knn(
+  cbind(train_df$Lag1, train_df$Lag2),
+  cbind(test_df$Lag1, test_df$Lag2),
+  train_df$Direction, k=1)
+table(predictions, test_df$Direction)
+mean(predictions == test_df$Direction)
+```
+
+This result is disappointing. We got exactly half the test cases right. What would happen if we bumped `k` to a bigger value. Soon we'll see better ways of doing this, using cross-validation (because if we just try out `k` until it works, we are fitting the hyperparameter `k` to the test data, and our results may not be trustworthy), but for now let's just try it out. Since stock data is very noisy, we'll use a pretty big value of `k`, 200:
+```{r}
+predictions <- knn(
+  cbind(train_df$Lag1, train_df$Lag2),
+  cbind(test_df$Lag1, test_df$Lag2),
+  train_df$Direction, k=200)
+table(predictions, test_df$Direction)
+mean(predictions == test_df$Direction)
+```
+
+Here we see that for `k = 100`, KNN is doing about as well as logistic regression and LDA did: we correctly guess the direction of around 55% of the market moves, using the previous two days' returns as our covariates.
+
+## Next Post
+
+I hope you've enjoyed this quick tutorial on LDA and KNN, which concludes Chapter 4 of ISLR. Next post, we'll start looking at chapter 5, which discusses cross-validation and the bootstrap. These are alternative ways of measuring the accuracy of a model, which can be used instead of the training/test data split we've been using.
