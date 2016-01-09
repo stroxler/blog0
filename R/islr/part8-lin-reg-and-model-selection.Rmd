@@ -1,0 +1,169 @@
+---
+title: 'Introduction to Statistical Learning part 7: the bootstrap'
+author: "Steven Troxler"
+date: "January 7, 2016"
+output: html_document
+---
+
+Welcome to the seventh post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the last two posts, we saw some simple examples of cross-validation and the bootstrap. In this post, we're going to look at model selection for linear models using a few different methods, including cross-validation.
+
+```{r echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## The `ISLR::Hitters` dataset
+
+The `Hitters` dataset from the `ISLR` package contains data on major league baseball hitters in 1986 and 1987. Let's take a quick look:
+```{r}
+hitters <- tbl_df(ISLR::Hitters)
+hitters
+```
+
+We'll try to predict player salaries. Let's look at a summary and a histogram of salary:
+```{r}
+summary(hitters$Salary)
+ggplot(hitters, aes(x=Salary)) + geom_density()
+```
+
+Unfortunately, there are quite a few missing values here, so we'll remove them.
+```{r}
+hitters <- na.omit(hitters)
+```
+
+## Best subset selection
+
+Best subset selection is an exhaustive-search approach to linear models. It only works when the number of covariates is fairly small, since the number of possible linear models grows exponentially with the number of variables. But if we have plenty of data with only a few variables, it's not a bad way of picking a well-fitting model.
+
+The `leaps` library (you may need to run `install.packages("leaps")` before running the code) has a function `regsubsets` for doing best-subset selection. Let's take a look:
+```{r}
+library(leaps)
+best_subset_info <- regsubsets(Salary~., data=hitters, nvmax=19)
+best_subset_summary <- summary(best_subset_info)
+best_subset_summary
+```
+
+The fit is quite fast with a small number of variables, likely because the work of forming `X^T X` and `X^T Y` can be reused by cleverly slicing matrices. The output of summary is telling us what the best variables are for each subset size: the columns that have '*'s for each row are the variables included in the best model of that size.
+
+The summary has a number of entries:
+```{r}
+names(best_subset_summary)
+```
+
+In the interests of speed, we're going to use [Mallow's Cp statistic](https://en.wikipedia.org/wiki/Mallows%27s_Cp), which is closely related to the AIC statistic, to pick the best model.
+```{r}
+qplot(1:19, best_subset_summary$cp,
+      xlab = "Number of variables", ylab = "Mallow's Cp statistic")
+which.min(best_subset_summary$cp)
+```
+
+The smallest value of Mallow's Cp corresponds to the best expected predictive accuracy, so it looks like the 10 variable model may do best.
+
+There's also a nice `plot` method on the best subsets output, which makes a white/black plot similar to what we get by printing the summary, and lets us order the y axis by various measures of fit (the default is `bic`, but we'll tell it to use `cp`)
+```{r}
+plot(best_subset_info, scale='Cp')
+```
+
+### A warning about the analysis we just did
+
+I'd like to point out a possible issue with the way we used the Cp statistic: there were `choose(19, 10)` or `92378` possible models with 10 variables, and we picked the best one. So Mallow's Cp statistic - which doesn't know that we're data snooping by picking the best of many models - may be biased toward more complex models.
+
+If this were a real-life data science project, we would want to confirm via a safer method like cross-validation, and we wouldn't be surprised if the best model had fewer variables than our Cp-statistic-based analysis suggested using. Later in this post, we'll look at using a validation set for model selection.
+
+## Forward Stepwise Selection
+
+The best-subsets selection method we used in the preceding section searches over all possible models for each subset size. This won't scale well at all if we have many variables: it did fine with 19, but if we have dozens or more, we'll be in a lot of trouble because the number of models scales exponentially with the number of columns in $X$.
+
+Stepwise selection is a greedy approach to getting a round this: instead of hunting through all possible models, we just add variables one at a time, at each step adding the variable that most improves the model fit. The number of decisions we have to make is now just linear in the number of columns of $X$ - one variable at a time - and the total number of models we need to evaluate scales roughly like the square of the number of variables in $X.$ If we have hundreds of variables, this is still quite manageable.
+
+The `leaps` package allows forward selection using the same `regsubsets` function. To use forward selection rather than best subset, we just add the `method = "forward"` argument:
+```{r}
+fwd_sel_info <- regsubsets(Salary~., data=hitters, nvmax=19, method="forward")
+summary(fwd_sel_info)
+plot(fwd_sel_info, scale="Cp")
+```
+
+The same warning we had as with best subset selection - that the Cp statistic may be misleading - applies here. But because the forward selection searches through fewer models, the problem isn't quite as severe here as it was for best subset selection.
+
+## Using a validation set for model selection
+
+Keeping in mind all the reasons above why we might not trust the Cp statistic to give us a good model choice, let's try working with a training / test set split:
+
+```{r}
+set.seed(255)
+hitters_train <- sample_frac(hitters, 0.666)
+hitters_test <- setdiff(hitters, hitters_train)
+```
+
+Now as we fit models, we can collect the errors on the test set, which gives us a very good estimate - which is robust to choosing best models, unlike the Cp statistic - of how well the model actually predicts salaries.
+
+There's no `predict` function for the output of a `regsubsets` fit. But we can use the `coef` function to get a `betahat` that includes variable names, and there's a handy built-in function `model.matrix` for getting a covariate matrix given a data frame and a model formula. When we make our predictions, have to slice this matrix using the variable names to match `betahat`:
+```{r}
+test_err <- rep(NA, 19)
+train_fwd_sel_info = regsubsets(Salary~., data=hitters_train,
+                                nvmax=19, method="forward")
+x_test <- model.matrix(Salary~., data=hitters_test)
+y_test <- hitters_test$Salary
+for (nvar in 1:19) {
+  betahat <- coef(train_fwd_sel_info, id=nvar)
+  yhat <- x_test[, names(betahat)] %*% betahat
+  test_err[nvar] <- mean((y_test - yhat) ** 2)
+}
+qplot(1:19, sqrt(test_err), xlab = "number of covariates", ylab="test set mse")
+which.min(test_err)
+```
+
+Surprisingly (to me), on this split the test error was minimized with 11 variables, although it's much less smooth than the plots of the Cp statistic (this is typical, since it comes from random data).
+
+If we wanted to regularly make predictions from `regsubsets` models, it would be handy to have a `predict` function that works. To finish up this part of the post with some programming practice, let's write one:
+```{r}
+predict.regsubsets <- function(regsub, nvar, df) {
+  # extract the formula. We have an underscore in the var name so that
+  # we don't confuse this variable with the stats::formula function.
+  formula_ <- as.formula(regsub$call[[2]])
+  x <- model.matrix(formula_, data=df)
+  betahat = coef(regsub, id=nvar)
+  # remember, the last line is the return value, we don't need a
+  # return statement in R
+  x[,names(betahat)] %*% betahat
+}
+```
+
+## Cross-validation
+
+Our last topic for today is to use cross-validation for the prediction problem. We've already seen cross-validation before: it's similar to using a training / test set split, but we split the data repeatedly and use every data point in one test set. It's slower than using a single training / test set split, but because we use more data we get better estimates of model accuracy.
+
+We used `dplyr` to sample the data for training and test, but for cross-validation it's easier to use `R` built-in functions. We first create a random integer vector `folds` by taking the numbers 1 through 10, repeating them over and over until we get a vector the length of `hitters`, and then using `sample` with replacement to shuffle it.
+```{r}
+folds <- sample(rep(1:10, length=nrow(hitters)))
+folds[1:20]
+```
+
+Next, we run through the different model sizes and record errors as we did when using a training and test set. But this time we also have to loop over the cross validation folds, so our code is a double loop.
+```{r}
+cv_errors <- rep(0, 19)
+for (fold in 1:10) {
+  h_test = hitters[folds == fold,]
+  h_train = hitters[folds != fold,]
+  fwd_sel_info = regsubsets(Salary~., data=h_train,
+                            nvmax=19, method="forward")
+  y_test = h_test$Salary
+  for (nvar in 1:19) {
+    yhat <- predict.regsubsets(fwd_sel_info, nvar, h_test)
+    cv_errors[nvar] = cv_errors[nvar] + (
+      length(yhat) / length(hitters) * mean((yhat - y_test) ** 2)
+    )
+  }
+}
+qplot(1:19, cv_errors, xlab = "Number of covariates", ylab="cross-validation mse")
+```
+
+Note that the error is still minimized around a model size of 11, and the error estimates are noticeably smoother than they were when we used a single training and test set split.
+
+## Next Post
+
+In our next post, we'll look at applying model selection methods to working with regularized linear models. We'll look at ridge regression and the lasso, which are variations on least-squares which work for very large models.

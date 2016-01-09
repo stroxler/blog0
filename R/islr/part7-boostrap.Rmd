@@ -1,0 +1,105 @@
+---
+title: 'Introduction to Statistical Learning part 7: the bootstrap'
+author: "Steven Troxler"
+date: "January 7, 2016"
+output: html_document
+---
+
+Welcome to the sixth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In this post we're going to follow along with the lab on the bootstrap, using it to infer the noise level when picking the optimal asset allocation for a minimum variance portfolio.
+
+```{r echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## Portfolio optimization, without noise
+
+Suppose we have two assets, $X$ and $Y$. They have some covariance structure, and we want to compute the optimal minimum-variance allocation $\alpha$. We're going to hold $\alpha$ units of asset $X$, and $1-\alpha$ inits of asset $Y$.
+
+To find the optimal $\alpha,$ let's look at the variance of our portfolio:
+$$
+\DeclareMathOperator{\var}{var}
+\DeclareMathOperator{\cov}{cov}
+f(\alpha) := \var(\alpha X + (1 - \alpha Y))
+           = \alpha^2 \var(X) + 2\alpha(1-\alpha)\cov(X, Y) + (1 - \alpha)^2\var(Y)
+$$
+Taking the derivative,
+$$
+f'(\alpha) = 2\alpha\var(X) + 2 \cov(X, Y) - 4\alpha \cov(X, Y) - 2 \var(Y) + 2 \alpha\var(Y)
+$$
+and if we set this to zero and divide by 2, we get
+$$
+\alpha \var(X) -2\alpha \cov(X, Y) + \alpha \var(Y) = \var(Y) - \cov(X, Y),
+$$
+or
+$$
+\alpha = \frac{ \var(Y) - \cov(X, Y) }
+              { \var(X) - 2\cov(X, Y) + \var(Y) }.
+$$
+
+This has a nice interpretation: each stock is contributing its own variance plus the covariance to what we can think of as a total variance penalty, and we weight each stock by the *other* stock's contribution toward that penalty.
+
+## What happens when the variances are estimated?
+
+The formula we have for $\alpha$ isn't too complicated, but it's very nonlinear. This is a problem if we care about the noise in our fit value of $\alpha$ when we estimate the variances from data. We know that empirical estimates of variance behave like $\chi^2$ random variables, but when we add several of them up and take the ratio, it's hard to say what happens.
+
+This, then, is a good opportunity to use the bootstrap.
+
+## Introduction to the bootstrap
+
+The core idea behind the bootstrap is that if we want to know how much noise is caused by taking a sample and running it through some arbitrary function, a reasonable thing to try doing is take a sample *from our sample* and see how much noise is introduced. We do this by *re-sampling* the data, that is, taking a new sample of size $M$ by drawing with replacement from our sample of size $M$. This will be noisier than our original sample because some points come up more than once, and some not at all.
+
+The theory of the bootstrap says that for appropriate statistical estimators, the noise that we see when comparing the estimator on the full data versus the estimator from a bunch of bootstrap samples is very similar to the noise of the full data estimator versus the true underlying parameter.
+
+Going back to the asset allocation for a concrete example: suppose we have $M$ data points $(x_i, y_i)$ and we want to know how noise $\hat \alpha(x, y)$ is when fit on this data, relative to the optimal value if we knew the variances exactly. Then we can draw a bunch of samples of $M$ values $(\tilde x_i, \tilde y_i),$ where we draw *with replacement*, in order to estimate the variances and covariance. And when we compute the optimal portfolio allocations based on those bootstrap samples $\hat \alpha(\tilde x, \tilde y)$, the errors $\hat \alpha(\tilde x, \tilde y) - \hat \alpha(x, y)$ will have a distribution similar to the error between $\hat \alpha(x, y)$ and the perfect optimal portfolio.
+
+## Now let's write some code
+
+The data we'll use is from the `ISLR::Portfolio` dataset. Let's write a function to compute the optimal $X$ weight $\alpha$:
+```{r}
+alpha <- function(x, y) {
+  vx <- var(x)
+  vy <- var(y)
+  cxy <- cov(x, y)
+  (vy - cxy) / (vx + vy - 2 * cxy)
+}
+```
+
+We're almost ready to run the bootstrap, but we need a wrapper function that extracts data and runs `alpha` on it:
+```{r}
+alpha_with_idx <- function(data, index) {
+  with(data[index,], alpha(X, Y))
+}
+```
+
+If you haven't used R much, this function might seem mysterious. What its saying is take the `data.frame` `data`, and make a new `data.frame` by extracting the rows `index` (in our case `index` will be randomly generated, sampling with replacement). Then, in an environment that includes that `data.frame` as part of the namespace, run `alpha(X, Y)`. The original dataset will be `Portfolio` when we run this, so `X` and `Y` wind up referring to columns of `Portfolio`.
+
+We wrote our function this way because the function `boot::boot` expects this interface, and that's what we'll use for our bootstrap:
+```{r}
+library(boot)
+boot_out <- boot(ISLR::Portfolio, alpha_with_idx, 1000)
+boot_out
+```
+
+We see here what `boot` gives us: by taking bootstrap estimates of `alpha` and comparing them to a non-bootstrapped estimate, it forms an estimate of both the bias and standard error in our estimate. We can also get a little plot:
+```{r}
+plot(boot_out)
+```
+
+## A word of warning about cross-validation and the bootstrap
+
+Cross-validation and the bootstrap are both useful approaches for working with complex models. But one thing I want to emphasize is that you can only use the textbook bootstrap and cross-validation algorithms safely if your data is iid.
+
+As an example of where this could get you into trouble: I did financial research at a hedge fund for a few years. With financial time-series data, you really do see statistical patterns come and go. The problem isn't so much that trends don't exists, it's that they are weak and short-lived, and they might disappear before you can recover your trading costs if you try to act on them.
+
+In this setting, if you were to do a random bootstrap or cross-validation of your data to judge how good a model is, you'd mislead your self because the data is not iid. Nearby points tend to be much more similar than far away points, which makes prediction of new chunks of data much harder than prediction of randomly selected data.
+
+There are various ways of dealing with this, for example sampling big blocks of data rather than just individual data points; under some stationary assumptions that are often reasonable, this will work much better. In general, you need to *think* before blindly applying methods, even nonparametric methods like the bootstrap and cross-validation.
+
+## Next post
+
+This post concludes Chapter 5 of ISLR, which was on sampling methods. In the next post, we'll start looking at Chapter 6, which discusses rigorous ways of fitting complexity hyperparameters in linear models.
