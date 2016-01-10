@@ -1,0 +1,123 @@
+---
+title: 'Introduction to Statistical Learning part 8: ridge regression and lasso'
+author: "Steven Troxler"
+date: "January 7, 2016"
+output: html_document
+---
+
+Welcome to the ninth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). Last post we looked at how to use model selection to decide what variables to use in a linear regression. This post, we look at an alternative method called *regularization* which allows us to include many more variables in a regression by adding a penalty term to our loss function.
+
+```{r echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+We'll continue to use the same `Hitters` dataset for our analyses.
+```{r}
+hitters <- tbl_df(ISLR::Hitters)
+```
+
+## Penalized maximum likelihood
+
+In maximum likelihood estimation (and ordinary least squares is a special case where the $Y$ distribution is Gaussian), we have some probability function
+$$
+P(Y|X, \theta)
+$$
+where $\theta$ is a parameter vector, and we estimate $\theta$ by maximizing the probability over the full data set
+$$
+P(y|x, \theta) = \sum_m P(y_m | x_m, \theta)
+$$
+
+This has a lot of nice statistical properties as long as the number of observations is large and the size of $\theta$ is relatively small. But it can behave very wildly if $\theta$ is quite large, because it overfits. This is a major problem in a lot of machine learning applications of least squares methods, since the number of variables can be huge (for a simple example, imagine if $X$ contains the red, green, and blue intensities of every pixel in an image!). 
+
+One common approach to solving this problem is to add a term to our optimization so that it will prefer "simple" values of $\theta.$ That is, instead of maximizing the raw likelihood, we can maximize
+$$
+\sum_m P(y_m | x_m, \theta) + C(\theta)
+$$
+where $C$ is some function which penalizes for the complexity of $\theta.$
+
+Typically $C$ is a convex function such as a norm, since that makes the optimization easy to compute. Ridge and lasso regression come from applying two different norms in this manner to least-squares regression: in ridge regression we use the 2-norm $C(\theta) = \lambda \sum_i \theta_i^2$, and in lasso we use the 1-norm $C(\theta) = \lambda \sum_i |\theta_i|$. In both cases note that we have a constant $\lambda$ controlling the intensity of the penalty: larger values of $\lambda$ mean we strongly prefer simple models, and small values of $\lambda$ mean we 
+
+It turns out that the optimal value of $\theta$ in ridge regression can be expressed in closed form, using a modified form of the normal equations. Lasso, on the other hand, has no closed form and must be solved numerically. But because both problems are convex, the difference isn't terribly important: both are easy to solve quite fast.
+
+## What is the difference between ridge and lasso?
+
+Think about the shape of the set $\{x : ||x|| < 1\}$ in two dimensions. If we use the 2-norm, this set is just a solid circle of radius 1. But if we use the 1-norm, we get a diamond, with corners at $(1, 0)$, $(0, 1)$, $(-1, 0)$, and $(0, -1)$.
+
+When we optimize penalized regression models, this causes a major difference: the ridge penalty likes to have a lot of small values for the $\theta_i$. But the lasso doesn't care too much, and the "corners" in the 1-norm cause it to actually prefer $\theta$ values which have only a few nonzero entries. Statisticians call this kind of $\theta$ a "sparse" parameter vector.
+
+If our goal is just to predict new points, often the two behave very similarly. When I worked at a finance company predicting stock returns, we often used ridge regression in our models because it was easy, and it works pretty well.
+
+But if we care about *explaining* the result, lasso can be much better. It's widely used in science. In genetics, for example, we often have a few dozen people and measure gene expression for hundreds or even thousands of genes. Maybe we measured some variable measured for those people, and find just a few genes that can explain the behavior of that variable. Lasso is perfect for this: it will try to explain the predictive power of the many genes we measured by finding just a few "important" ones.
+
+## Ridge regression using `glmnet`
+
+To run ridge regression and lasso in R, we'll use the `glmnet` package. It does not use formulas like the `lm` and `glm` functions, so we'll create a matrix from our formula much as we did last post
+```{r}
+library(glmnet)
+hitters <- na.omit(hitters)
+x = model.matrix(Salary~., data=hitters)
+y = hitters$Salary
+```
+
+The `glmnet` functions take an `alpha` parameter that allow it to use a combination of ridge and lasso, but we'll stick to using one or the other. To get ridge, we take `alpha=0`, and to get lasso we take `alpha=1`.
+
+Let's try out ridge regression, and plot the results:
+```{r}
+ridge_model = glmnet(x, y, alpha=0)
+plot(ridge_model, xvar="lambda", label=TRUE)
+```
+
+This plot is showing the evolution of the coefficients as $\lambda$ varies. Recall that $\lambda$ is the weight we put on the penalty: as it gets larger, we get a progressively simpler model, and we see that the coefficients tend toward zero. But they wiggle around a bit, instead of all going to zero at the same rate: the solution of the ridge regression problem isn't just a scaled-down version of the solution to the regular regression problem (which is what we get when $\lambda=0$ at the left side): it's something fundamentally different.
+
+The `glmnet` package fits all these models, by the way, because it uses gradient methods to adjust the model as $\lambda$ changes just a bit, which is very fast and easy. I recommend studying numerical and convex optimization at some point, to get a conceptual feel for how functions like this work under the hood.
+
+The most common way to set $\lambda$ in practice is to make use of cross-validation. The `glmnet` package comes with cross-validation support built-in. Let's take a look:
+```{r}
+cv_ridge = cv.glmnet(x, y, alpha=0)
+plot(cv_ridge)
+```
+
+This plot is showing estimates of mean squared error based on cross-validation for different values of lambda, with error bars. The line is drawn for the largest lambda such that the estimated mse is within one standard deviation of the minimum, which is sometimes used for a rule of thumb as to the largest reasonable penalty to use.
+
+## Lasso using `glmnet`
+
+Let's try fitting a model on the same data using lasso:
+```{r}
+lasso_model = glmnet(x, y, alpha=1)
+plot(lasso_model, xvar="lambda", label=TRUE)
+```
+
+Note how the plot changes: as $\lambda$ increases, the changes to the coefficients are a lot more wiggly than for ridge, and each coefficient has a critical $\lambda$ value beyond which it is always zero. We are seeing the sparsity-inducing nature of lasso in action here.
+
+There are other ways of plotting the model, by the way. If we plot `dev`, then it shows how the deviance - an estimate of model fit for generalized linear models - varies relative to the parameters:
+```{r}
+plot(lasso_model, xvar="dev", label=TRUE)
+```
+
+We can use cross-validation in much the same way to pick a good value of $\lambda$:
+```{r}
+cv_lasso = cv.glmnet(x, y, alpha=1)
+plot(cv_lasso)
+```
+
+## Using a training / test set split instead
+
+It's also possible to evaluate a `glmnet` fit using a single training / test set split instead of cross-validation. I won't go into it here, but the [lab video lecture](https://www.youtube.com/watch?v=1REe3qSotx8) on this material covers doing so.
+
+## Predicting new data
+
+The `coef` function, when applied to the output of a `cv.glmnet` fit, automatically extracts the optimal coefficients.
+```{r}
+coef(cv_lasso)
+```
+
+By calling `model.matrix` on a `data.frame` of new observations and multiplying by the coefficient vector, we can obtain predictions. The same approach works for ridge regression.
+
+## Next post
+
+In our next post, we'll start Chapter 7 of ISLR, which covers non-linear models.

@@ -1,11 +1,11 @@
 ---
-title: 'Introduction to Statistical Learning part 7: the bootstrap'
+title: 'Introduction to Statistical Learning part 8: model selection for regression'
 author: "Steven Troxler"
 date: "January 7, 2016"
 output: html_document
 ---
 
-Welcome to the seventh post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the last two posts, we saw some simple examples of cross-validation and the bootstrap. In this post, we're going to look at model selection for linear models using a few different methods, including cross-validation.
+Welcome to the eighth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the last two posts, we saw some simple examples of cross-validation and the bootstrap. In this post, we're going to look at model selection for linear models using a few different methods, including cross-validation.
 
 ```{r echo=FALSE, message=FALSE}
 knitr::opts_chunk$set(
