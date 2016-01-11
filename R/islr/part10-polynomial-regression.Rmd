@@ -1,0 +1,169 @@
+---
+title: 'Introduction to Statistical Learning part 10: polynomial regression'
+author: "Steven Troxler"
+date: "January 7, 2016"
+output: html_document
+---
+
+Welcome. Today I want to continue with [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/), today going through some examples of nonlinear regression.
+
+We've already seen a few polynomial regression examples, which is a common way of performing nonlinear regression. We'll start by reviewing that topic. Then we'll discuss alternative nonlinear regression methods like splines and generalized additive models.
+
+```{r echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## The Wage dataset
+
+We've looked at the `ISLR::Wage` dataset before. Today we'll be trying to predict `Wage` as a function of `age` and `education`. Let's take a look at the data:
+
+```{r}
+wages = tbl_df(ISLR::Wage)
+wages
+ggplot(data=wages, aes(x=age, y=wage)) +
+    facet_wrap(~ education) +
+    geom_point(aes(color=education))
+```
+
+The approaches we want to try out work for generalized linear models as well as least squares. To create some sample data for working with logistic regression, we'll make a variable for high-wage earners. Notice that when we look at wage, the distribution is bi-model, with a kind of "strip" of very high-wage earners at the top. We can see this in a density plot also:
+```{r}
+ggplot(data=wages, aes(x=wage)) + geom_density()
+```
+
+It looks like if we cut the data at around 240, we can split the data into two groups.
+```{r}
+wages$highwage = (wages$wage > 240)
+```
+
+We can double check our new variable with another plot:
+```{r}
+ggplot(wages, aes(x=age, y=wage)) + geom_point(aes(color=highwage))
+```
+
+## Polynomial regression
+
+### Directly setting polynomial terms
+
+Suppose we want to fit a model
+$$
+Y = \beta_0 + \beta_1 X + \beta_2 X^2.
+$$
+
+The most direct way to do this in `R` is to include the variable and higher powers of it. The code to do so looks like this
+```{r}
+model0 = lm(data=wages, wage ~ age + I(age**2))
+model0
+```
+
+The `I` in the formula prevents `R`'s formula parser from interpreting `age**2`, which has a different meaning inside the formula language. If we want to compare models with more terms (we call these 'nested models'), we can use anova:
+```{r}
+model1 = lm(data=wages, wage ~ age)
+anova(model0, model1)
+```
+
+What we see above is that there is very strong evidence that a model which includes `age ** 2` as well as `age` is better than one which includes only `age`.
+
+The same approach will work for a generalized linear model:
+```{r}
+model = glm(data=wages, highwage ~ age + I(age ** 2))
+model
+```
+
+### Orthogonal polynomials
+
+Generally people prefer to use orthogonal polynomials in linear models these days. Orthogonal polynomials are polynomials which are uncorrelated with one another. The basic idea is that if someone asks orthogonal polynomials up to order 4, first you'd give them a constant function. Then, you'd give them $X$ but you'd subtract off $\bar X$ so that it's uncorrelated to the constant. Then you'd give them $X^2$, but you'd subtract off a constant and a factor of $X$ to make sure it's still uncorrelated. This process, if you have a math background, is called *Gram-Schmidt orthogonalization*, and can be applied to any basis vectors. In this case, our starting basis is $X, X^2, ...$ and after applying Gram-Schmidt, we get orthogonal polynomials.
+
+Why would we prefer orthogonal polynomials? The reason has to do with the meaning of $T$-statistics. When variables are correlated, a t-statistic for one variable tells you only about how important that variable is keeping all other variables the same. But when the variables are orthogonal, you can look at many t-statistics at the same time, because the t-statistic for one variable won't change much if you delete some other variable.
+
+It's very easy to use orthogonal polynomials in `R`, we just apply the `poly` function:
+```{r}
+model3 <- lm(wage ~ poly(age, 2), data=wages)
+model3
+```
+
+Note that the coefficients for model3 and model0 are not the same. This is because the orthogonal polynomials and regular powers of `age` aren't the same. But the predictions themselves are the same, as we can see with a plot:
+
+```{r}
+pred0 = predict(model0, data=wages)
+pred3 = predict(model3, data=wages)
+qplot(pred0, pred3)
+```
+
+Be careful of one thing: if you use the `lm` function with orthogonal polynomials, the different predictors are uncorrelated and you can interpret the t-statistics as if each one were independent of the others. But when using the `glm` function for non-gaussian models (e.g. logistic regression), even when you use `poly` to get orthogonal polynomials, the t-statistics are not independent. In that situation, you should rely on `anova` for comparing more complex models to simpler ones.
+
+## Plotting predictions with error bars
+
+There are two good ways of visualizing predictions. One is to use built-in plotting tools and create our errors by hand. We can often get prettier visualizations using the `stat_smooth` tool with `ggplot2`. 
+
+### Constructing our own plots
+
+```{r}
+with(wages, plot(age, wage))
+age_grid <- seq(from=15, to=81)
+model <- lm(wage ~ poly(age, 3), data=wages)
+predictions <- predict(model, list(age=age_grid), se=T)
+yhat <- predictions$fit
+yhat_se <- predictions$se.fit
+matlines(age_grid,
+         cbind(yhat - yhat_se, yhat, yhat + yhat_se),
+         lwd=c(1, 2, 1), lty=c(2, 1 ,2), type="l",
+         col="blue")
+```
+
+Here's an explanation of what's going on: we first make a plot, and then form a grid of ages to generate values for the lines we want. Next, we create a model, and then we predict the model. Note how we pass a `list` to the `predict` function: this is because it expects a `data.frame`, and a `list` is enough like a `data.frame` that `predict` knows what to do. By passing `se=T`, we get a list of outputs instead of just a vector of estimates. We make our prediction line and our standard error bands by accessing the `fit` and `se.fit` elements of the list, and we use the `matlines` function to plot multiple `y` values per `x` value, with different line types and widths for the bands versus the central estimate.
+
+The same approach works for a generalized linear model, but the `predict` function will output errors in the linear space where the model coefficients are evaluated. That may sound abstract, but for the concrete case of logistic regression it just means that the output is for the log odds-ratio rather than the probability of a 1.
+
+So to make the same type of plot, we need to transform the output of predict to the data space. In the case of logistic regression, that means we take the output $\hat \eta$ and transform it by evaluating
+$$
+\frac{1}{1 - e^{-\hat \eta}}
+$$
+to get a probability estimate. Let's give it a try:
+
+```{r}
+with(wages, plot(age, highwage))
+model <- glm(highwage ~ poly(age, 3), data=wages,
+             family="binomial")
+predictions <- predict(model, list(age=age_grid), se=T)
+etahat <- predictions$fit
+etahat_se <- predictions$se.fit
+eta_to_p <- function(eta) { 1 / (1 + exp(-eta)) }
+eta_matrix = cbind(etahat - etahat_se,
+                   etahat,
+                   etahat + etahat_se)
+matlines(age_grid,
+         eta_to_p(eta_matrix),
+         lwd=c(1, 2, 1), lty=c(2, 1 ,2), type="l",
+         col="blue")
+```
+
+Unfortunately it's too hard to really see this prediction on the data scale because high wages are rare, but using `matplot` we can look at the predictions themselves on a better scale:
+```{r}
+matplot(age_grid,
+        eta_to_p(eta_matrix),
+        lwd=c(1, 2, 1), lty=c(2, 1 ,2), type="l",
+        col="blue")
+```
+
+### Visualizing predictions using ggplot
+
+When using the base plotting library to visualize our model, we ran the prediction algorithm and built our predictions and error bands ourselves. This is typical of many plotting packages, but with `ggplot2` the approach is more integrated: we use its `stat_smooth` tool and let it build the model for us. Let's see what this looks like for the cubic regression of `wage` on `age`:
+```{r}
+ggplot(wages, aes(x=age, y=wage)) + geom_point() +
+  stat_smooth(method="lm", formula=y~poly(x,3))
+```
+
+Note that in the formula, we need to refer to the aesthetics `ggplot2` is working with, not the original variable names.
+
+One nice thing about using `ggplot` to visualize models is how easy it is to make them more complex. If we wanted to add `eductation` to the model, plotting by hand would require quite a lot of additional code: partitioning the plotting space, making multiple scatter plots, making multiple sets of coefficients to generate predictions, etc. With `ggplot2`, the model automatically gets split on any factors that we have used as facets, and the visualization is all done for us:
+```{r}
+ggplot(wages, aes(x=age, y=wage)) +
+  geom_point(aes(color=education)) +
+  facet_wrap(~ education) +
+  stat_smooth(method="lm", formula=y~poly(x,3))
+```{r}
