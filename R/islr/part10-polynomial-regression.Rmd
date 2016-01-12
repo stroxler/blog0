@@ -66,6 +66,8 @@ model1 = lm(data=wages, wage ~ age)
 anova(model0, model1)
 ```
 
+I'm not going to go into details here, but I do want to point out that the `I()` function can also be used to create binary variables, for example `I(age < 45)`. This can be used as a predictor directly, in which case we have *peicewise constant* regression, or as an interaction term. If you want to break up the range of a variable into many pieces, there's also a `cut` function that's part of `R`'s formula language, so you could write `wage~cut(age, c(30, 40, 50, 60, 70))` to make a model where wage depends only on what decade of their life a worker is in.
+
 What we see above is that there is very strong evidence that a model which includes `age ** 2` as well as `age` is better than one which includes only `age`.
 
 The same approach will work for a generalized linear model:
@@ -94,7 +96,7 @@ pred3 = predict(model3, data=wages)
 qplot(pred0, pred3)
 ```
 
-Be careful of one thing: if you use the `lm` function with orthogonal polynomials, the different predictors are uncorrelated and you can interpret the t-statistics as if each one were independent of the others. But when using the `glm` function for non-gaussian models (e.g. logistic regression), even when you use `poly` to get orthogonal polynomials, the t-statistics are not independent. In that situation, you should rely on `anova` for comparing more complex models to simpler ones.
+Be careful of one thing: if you use the `lm` function with orthogonal polynomials, the different predictors are uncorrelated and you can interpret the t-statistics as if each one were independent of the others. But when using the `glm` function for non-Gaussian models (e.g. logistic regression), even when you use `poly` to get orthogonal polynomials, the t-statistics are not independent. In that situation, you should rely on `anova` for comparing more complex models to simpler ones.
 
 ## Plotting predictions with error bars
 
@@ -166,4 +168,8 @@ ggplot(wages, aes(x=age, y=wage)) +
   geom_point(aes(color=education)) +
   facet_wrap(~ education) +
   stat_smooth(method="lm", formula=y~poly(x,3))
-```{r}
+```
+
+## Next Post
+
+This concludes the tutorial on polynomial regression in `R`. Next post, we'll talk about related methods for nonlinear regressions: splines and generalized additive models.
