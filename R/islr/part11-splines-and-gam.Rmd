@@ -1,0 +1,122 @@
+---
+title: 'Introduction to Statistical Learning part 11: splines and GAMs'
+author: "Steven Troxler"
+date: "January 7, 2016"
+output: html_document
+---
+
+Welcome, today we will continue working through Chapter 7 of [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). Last post we discussed polynomial regression models, and today we will do a tutorial on splines and generalized additive models. We'll continue using the `ISLR::Wages` dataset, and predicting `wage` and `highwage` for examples of linear and generalized linear models, respectively.
+
+```{r echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+wages = tbl_df(ISLR::Wage)
+wages$highwage = (wages$wage > 240)
+wages
+```
+
+## Cubic spline methods
+
+### motivation and discussion
+
+Last post, we briefly discussed how it's possible to create piecewise constant functions in `R`s formula language using the `I` and `cut` functions. Splines evolved out of this idea of piecewise regression. The central idea is that we like piecewise regression, but we don't like having discontinuities or sharp breaks in our fitted function. So we'll continue to work with piecewise regressions that break the data into regions, but we enforce continuity requirements in our prediction functions: we usually demand that the function itself be continuous, and often also that the first few derivatives be constant.
+
+More precisely, a spline of order $k$ is a piecewise fit where we fit polynomials of degree $k$ within each region and we require that the derivatives up to the $k-1$st derivative all be continuous. So, for example, a linear spline is a piecewise linear function which is continuous, a quadratic spline is a piecewise parabolic function with continuous first derivative, and a cubic spline is a piecewise cubic function with two continuous derivatives.
+
+Cubic splines are very common, since cubic functions are relatively flexible but are still not too hard to fit, and because a function with two continuous derivatives is very smooth to the human eye; usually we can't even see where the boundaries of the regions are (whereas we usually can with linear and parabolic splines).
+
+A 'natural' cubic spline is an extension where we require the second derivative to be zero at the edges of the outermost regions. This forces the model to extrapolate linearly, and tends to reduce the extent to which the fit chases noise on the boundaries of the data where there is less information.
+
+### Fitting cubic splines in R
+
+It turns out that there is a basis we can use to fit regressions with spline constraints. As a result, we can fit splines in `R` using the normal `lm` and `glm` functions, just by adding spline terms to our formula language.
+
+This is exactly what the `splines` package does. It adds the functions `bs` and `ns` to the formula language, where `bs` gives basic cubic splines and `ns` gives natural cubic splines.
+
+Let's try it out, plotting with `ggplot2`:
+```{r}
+library(splines)
+ggplot(data=wages, aes(x=age, y=wage)) + geom_point() +
+  stat_smooth(method='lm', formula=y~ns(x,4))
+```
+
+It's possible for us to set the boundaries of the regions by giving `knots` in our call to `bs` or `ns`. By default `R` uses quantiles of the `x` variable, which is usually a good choice.
+
+## Smoothing splines
+
+Smoothing splines are a nonparametric method closely related to cubic splines. A smoothing spline regression minimizes this error, as a function of $g$:
+$$
+\sum_m (y_m - g(x_m))^2 + \lambda \int_{\mathbb{R}} g''(x) dx
+$$
+
+The intuition is that a function for which $g''(x) = 0$ is linear, so we are doing a regression where we try to fit the data, but also penalize for the total global amount of nonlinearity. The larger $\lambda$ is, the smoother our fit will be.
+
+This problem sounds very difficult - we are optimizing a function of $g$, where $g$ varies over all functions in the space - called a *Sobolev space* - where the second derivative exists everywhere and has finite integral. But a clever statistician managed to prove that the solution is actually always a natural cubic spline, with a knot at every data point.
+
+This allows a finite-dimensional solution which can be run on a computer. The details of the algorithm are too complicated to go through here (that's partly code for "I don't know them"), but in `R` the algorithm is already coded up and ready for us.
+
+We can use smoothing splines for 1d least squares using the function `smooth.spline`. We don't pass $lambda$ in directly, instead we tell the model how many degrees of freedom we want to give by passing in `df`.
+
+Let's try it out:
+```{r}
+model = smooth.spline(x = wages$age, y = wages$wage, df=16)
+predictions = predict(model, wages$age)
+names(predictions)
+```
+
+Unfortunately, here we see another inconsistency in `R`s interfaces: the `smooth.spline` function doesn't use the formula language, and `predict` doesn't take a data frame as input or pass out the same output as many other standard function. But by playing around in the `R` command line and reading help files, you can figure these sorts of idiosyncrasies quickly, and it's not hard to make a quick plot of the output:
+```{r}
+plot(wages$age, wages$wage)
+xorder = order(predictions$x)
+lines(predictions$x[xorder],
+      predictions$y[xorder],
+      col="blue", lwd=3)
+```
+
+The `df` parameter here is not required to be an integer. Like `\lambda` in lasso and ridge regression it is a complexity penalty that can be set via methods like cross validation. I won't go into code examples here, in the interests of keeping the post short, but you can use cross-validation to set the `df` parameter using methods very similar to the ones we explored for ridge and lasso regression.
+
+## Generalized Additive Models
+
+Generalized additive models are a family of methods for fitting nonlinear regressions. The core idea is that we allow nonlinear functions of every variable, but constrain the effects of different variables to be additive, that is we model $E [Y | X]$ as being a function of the form
+$$
+E [Y|X] = \beta_0 + f_1(X_1) + f_2(X_2) + ... + f_p(X_p).
+$$
+
+The advantage of expressing a nonlinear model in this form is that we can make the `f` functions quite general when there is a lot of data - for example, splines with high degrees of freedom or local regressions - but we aren't subject to the curse of dimensionality which arises when we allow nonlinear functions of many variables.
+
+Some forms of generalized additive models can easily be run via `lm` or `glm`, if they can be expressed in terms of a basis. For example, we can make a model which uses cubic splines for age and fits arbitrary functions on the categorical variable $jobclass$ using `ns` and `lm`. To visualize the model, we'll use the `gam` library's `plot.gam` function, which plots the different axes' fitted functions.
+```{r}
+model = lm(wage ~ ns(age, 9) + ns(year, 3), data=wages)
+library(gam)
+par(mfrow=c(1,2))
+plot.gam(model, se=TRUE)
+```
+
+More general additive models - many of which have iterative methods for fitting, because they cannot be fit in a single linear regression - are provided by the `gam` package. The `gam` function has a similar interface to the `glm` function, but it introduces several new formula terms. The most important ones are `s()`, which creates a smoothing spline for a variable, and `lo()`, which says to add a local regression. Let's look at an example:
+```{r}
+library(gam)
+model <- gam(wage ~ s(age, df=5) + lo(year, span=.75) + education, data=wages)
+par(mfrow=c(1,3))
+plot.gam(model, se=TRUE)
+```
+
+This fits a generalized additive model which has a smoothing spline on `age`, a local regression where the window spans 25% of the data for `year`, and a piecewise constant function for the categorical predictor `education`.
+
+Here's another example of using a GAM, this time for classification by setting `family = binomial`:
+```{r}
+model <- gam(highwage ~ year + s(age, df=5) + education,
+             family=binomial, data=wages)
+par(mfrow=c(1,3))
+plot.gam(model, se=TRUE)
+```
+
+## Next post
+
+Today we've finished up Chapter 7 of ISLR, on statistical nonlinear regression methods. Next post we will start looking at Chapter 8, which covers *trees*. Trees are a popular machine learning approach for both classification and regression problems, and we'll also cover a newer variation on them known as *random forests*.
