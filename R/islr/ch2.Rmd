@@ -24,9 +24,7 @@ library(dplyr)
 
 Welcome to the second installment of my series going through *An Introduction to Statistical Learning with Applications in R* (ISLR). [Last post](http://www.steventroxler.com/blog/?p=12), we went through some plots of the data to follow along with Chapter 1.
 
-This post, tagging along with Chapter 2, we will go through how to write functions in R and how to make plots of functions (as opposed to plots of data, which we covered last week).
-
-Once we've gone through these basics, we'll walk through an example of an R program looking at the bias-variance trade-off in linear models via simulation.
+In this post I follow along with Chapter 2 of ISLR. In the lab of that chapter, the authors show how to create `R` functions and plot functions of one and two variables. We go through this material. We then conclude with an example R program which investigates the bias-variance tradeoff, which is a major topic in Chapter 2, using a simulation study.
 
 ## R functions
 
@@ -60,19 +58,13 @@ In the last blog post, we saw how to plot data using `ggplot2.` In this post, we
 
 ### Plotting 1d functions
 
-If you want to plot a 1d function, you can use the simple `plot` function. By default, `plot` makes a scatterplot, but we can draw a curve by using `type = 'l'`:
+To plot a 1d function, you can use the simple `plot` function. By default, `plot` makes a scatterplot, but we can draw a curve by using `type = 'l'`:
 ```{r}
 x = 1:100 / 100
 plot(x, sqrt(x), type='l')
 ```
 
-If we want to plot multiple functions side by side, we need to know two more plotting tools. The first is
-that we can add color to a plot using the `col` argument:
-```{r}
-plot(x, x + 5, type='l', col='blue')
-```
-
-The second is that each call to `plot` redraws the window. If we want to add points or curves to a plot window we already made, we should use the `lines` or `points` functions:
+To plot multiple 1d functions, we need to know two more things. First, we can use the `col` argument to add color to a plot. Second, every call to `plot` redraws the window, so if we want to add points or curves to a plot window we already made, we should use the `lines` or `points` functions:
 ```{r}
 plot(x, sqrt(x), type='l', col='blue')
 lines(x, x ** (1/3), col='green')

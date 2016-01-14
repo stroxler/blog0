@@ -1,0 +1,180 @@
+---
+title: 'Introduction to Statistical Learning part 12: Trees, Random Forests, and Boosting'
+author: "Steven Troxler"
+date: "January 7, 2016"
+output: html_document
+---
+
+Welcome, today we will continue working through Chapter 7 of [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In this post, we're going to look at the topic of Chapter 8, on Trees and some generalizations.
+
+## Motivation for working with trees
+
+I won't dive into the details of trees or how they are fit, since the book and [accompanying video lectures](http://www.r-bloggers.com/in-depth-introduction-to-machine-learning-in-15-hours-of-expert-videos/) do a better job than I can of describing them. But I'd like to discuss a few reasons trees can be important, compared to many of the other models we've looked at.
+
+### ease of explaining the model
+
+First is interpretability. If you are a data scientist working with a team of non-data scientists, often explaining what a model means can be a big problem. Even a relatively simple model like linear regression, familiar to those of us who work with data every day, can be challenging for people with less training to understand. But a tree, which says that we predict based on a series of rules about different variables, is very easy to understand. Some of the related methods like random forests and boosted trees are more difficult to explain, but you can say something vague about how we average over many slightly different trees to do better, and typically people can understand the general idea.
+
+### a black-box model - little tuning needed once you've selected features
+
+The second reason is that trees require very little effort to fit, once you've decided on a set of predictors. When you use a linear model or logistic regression, you often need to carefully examine the regression: were there outliers? Do the errors look normal? Do you want to tweak some variables? With trees, once you've cleaned your data and decided on features, you can usually view the model itself as a black box: just drop the data into a random forest and set the one or two hyperparameters via cross validation. The model is non-parametric, and cross-validation generally picks a good model for your data without much need for intervention. Often it's this kind of black-box behavior people mean when they talk about machine learning: the model is capable of uncovering rules we never would have thought to program into a linear regression, all on its own.
+
+This doesn't mean you can use random forests without worrying about the data or model at all, I hasten to say. If your data is messy and has bad values, your model will not work well. And experienced data scientists say time and time again that the choice of algorithm often matters much less than choosing good features; even picking a model like random forests does not mean you needn't look at the data, or think hard about the problem and which predictors might work.
+
+### missing data
+
+There's another reason trees and random forests can work well in complex machine learning systems: the simplicity of the decisions, which vary based on just one variable, helps handle nasty real-world data. Imagine you have thousands of predictors, and are missing some of the predictors for almost every observation. A linear model will run into serious problems, because you basically have to throw out any data point with missing values, or else come up with a complex way of replacing many missing values.
+
+But with a tree, if you want to work with a missing value, you need only try to replace that one missing value -- for example, by regressing that predictor on some other non-missing ones -- to make a decision for moving down the tree. Even better, with some variants of random forests there will be many trees that don't even use that predictor, so you might be able to just ignore the trees that do and average the rest of them.
+
+```{r echo=FALSE, message=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = '#>',
+  fig.width = 7, fig.height = 6
+)
+library(ggplot2)
+library(dplyr)
+```
+
+## The `Carseats` dataset
+
+For today's tutorial, we'll use the `ISLR::Carseats` dataset. Let's take a quick look:
+```{r}
+carseats = tbl_df(ISLR::Carseats)
+carseats
+ggplot(data=carseats, aes(x=Sales)) + geom_histogram()
+```
+
+We'll create a binary variable so that we can work with classification trees, rather than regression trees.
+```{r}
+carseats$High <- as.factor(ifelse(carseats$Sales >= 8, "Yes", "No"))
+```
+
+## Fitting simple trees in R
+
+First let's split the data into training and test sets:
+```{r}
+set.seed(201589)
+train_idx <- sample(1:nrow(carseats), 250)
+train_df <- carseats[train_idx,]
+test_df <- carseats[-train_idx,]
+```
+
+Let's fit a simple tree:
+```{r}
+library(tree)
+model <- tree(High~.-Sales, data=train_df)
+summary(model)
+```
+
+Here, our formula says model `High` on all variables *except* `Sales`; we wouldn't want to use `Sales` since that's how we made `High`. The output includes a summary of the tree including classification error rates, residual deviance (which is a measure of model fit based on maximum likelihood and related to the likelihood ratio test), and some other information. We can also plot the tree; by calling text we get labels for each node.
+```{r}
+plot(model)
+text(model, pretty=0)
+```
+
+This tree hasn't been pruned at all, and is quite deep. Let's look at it's predictive power:
+```{r}
+yhat <- predict(model, test_df, type="class")
+table(yhat, test_df$High)
+mean(yhat == test_df$High)
+```
+
+Above, we said `type="class"` to tell the `predict` function that this is a classification tree rather than a regression tree. Our unpruned tree has predictive accuracy of just over 70%. We can try pruning using the `cv.tree` method, which uses cross-validation to prune:
+```{r}
+prunings <- cv.tree(model, FUN=prune.misclass)
+plot(prunings)
+```
+
+It looks like a size of 9 or 10 does best, although we see that actually there's not much evidence (based on the training data) that pruned trees are doing much better. Let's try out the pruned tree on the test dataset:
+```{r}
+pruned = prune.misclass(model, best=10)
+yhat <- predict(pruned, test_df, type="class")
+mean(yhat == test_df$High)
+```
+
+so with our training / test data, the pruned tree does just a bit better. The difference is small, and in fact with a different random seed you might see that the pruned tree does a bit worse. The main benefit of pruning in data science is not so much that the tree becomes more accurate, as that it becomes simpler and easier to explain. This can be very important in a business or engineering setting, where a simpler model may be more actionable. Let's see how much simpler the pruned model looks:
+```{r}
+plot(pruned)
+text(pruned, pretty=0)
+```
+
+## Fitting random forests in R
+
+When we fit random forests, we use a bootstrap sample to repeatedly get slightly different data from the same starting dataset. We then fit trees on them, while also randomly selecting variables available for each split. The benefit of all this randomness is that we get a bunch of trees, each of which has high variance and low bias because it is unpruned. (remember the bias-variance tradeoff! An unpruned tree is complex, so it tends to have high bias and low variance). When we average the predictions of all these trees together, though, we get lower variance and often very good performance.
+
+It's important to think about what's lost when we do that. The simple plot above, where we had a nice pruned decision tree that was easy to present, disappears. Random forests are harder to explain, and much harder to visualize. But it's still true that they are fast, flexible, and handle missing data pretty well. And their predictive performance can be quite good, so they are very popular.
+
+To work with Random Forests in `R`, we use the `randomForest` package and function.
+```{r}
+library(randomForest)
+model <- randomForest(High~.-Sales, data=train_df)
+model
+```
+
+Let's check out the predictive accuracy of this first model:
+```{r}
+yhat = predict(model, test_df)
+mean(yhat == test_df$High)
+```
+
+The main parameter that can be used to tune random forests is the `mtry` variable, which controls how many variables are tried at each split. The default that `randomForest` uses for classification is `sqrt(p)`, where `p` is the number of variables chosen. Hence, as we see above, it uses 3 here.
+
+But we can try to optimize `mtry` ourselves using cross-validation. There are a total of 10 variables available for predicting `High`, so lets try them all. A cool trick that random forests use to get cross-validation for free is "out-of-bag" error, which uses the samples not chosen in bootstraps to estimate error. Here we plot the out-of-band error rates, estimated using the training data, for various values of `mtry`:
+```{r}
+mtry_s <- 1:10
+oob_errs <- rep(NA, 10)
+test_errs <- rep(NA, 10)
+for (mtry in mtry_s) {
+  mod <- randomForest(High~.-Sales, mtry=mtry, data=train_df, ntree=400)
+  oob_errs[mtry] <- mod$err.rate[400]
+  test_errs[mtry] <- 1. - mean(predict(mod, test_df) == test_df$High)
+}
+plot(mtry_s, oob_errs, type='l', col="blue", lwd=2,
+     xlab="mtry value", ylab="error rate estimate")
+lines(mtry_s, test_errs, col="red", lwd=2)
+```
+
+With this data it looks like the test errors average a bit higher than the out-of-bag errors, but that's probably random chance. If we were to choose the best `mtry` based on out-of-bag estimates on the training data, we would pick the same as the `randomForest` default, 3. And in fact, this is the choice that does best on the test data.
+
+It's worth noting that the right-most errors on this plot correspond to bagging a tree model: if `mtry` is the number of variables available, then a randomForest is the same as just fitting a regular tree on bootstrapped samples of the dataset. In fact, this is the easiest way to work with bagged trees in `R`: use the `randomForest` function and set `mtry` to be the number of predictor variables.
+
+## Fitting boosted trees in R
+
+Boosting is another ensemble method, but the approach quite different from bagging. With random forests we fit complex models over and over with random changes, and average them to reduce the variance. With boosting, we fit very simple models and re-weight the data based on errors. When we add up all the fitted models, we often get one that performs quite well; bagging often outperforms random forests. There's an interesting theoretical result that says boosting is a sort of coordinate descent, where we are always adding the model which most improves an exponential loss function over the data among all possible models.
+
+Usually boosting works best when the models being averaged are very simple. It's common to use very shallow trees when boosting; in fact, often a "stump", or a tree with just a single split, works best.
+
+Let's try out boosted trees in R, using the package `gbm` ("Gradient Boosted Machines").
+```{r}
+library(gbm)
+model <- gbm(I(High == "Yes")~.-Sales,
+             data=train_df, distribution="bernoulli", n.trees=10000,
+             shrinkage=0.01, interaction.depth=4)
+```
+
+Note that `gbm` wants a numeric vector of 0's and 1's rather than a factor when using a `"bernoulli"` distribution, which is why we used the `I()` function in our formula. If we were using boosting for regression, we would use `distribution="gaussian"` instead, for example
+```{r}
+sales_model <- gbm(Sales~.-High,
+                   data=train_df, distribution="gaussian", n.trees=10000,
+                   shrinkage=0.01, interaction.depth=4)
+```
+
+Returning to the model that predicts `High`, if we call `summary` on this model, the `gbm` package shows a summary of how much information the different variables seem to be providing. It also plots them, although often not all of the variable names show up in the plot, so it's useful to compare the plot and printed output:
+```{r}
+summary(model)
+```
+
+We can plot the predicted values given just a single variable by using the `i` keyword in the `plot` method of `gbm` models:
+```{r}
+plot(model, i="ShelveLoc")
+plot(model, i="Price")
+```
+
+With random forests, we used unpruned trees, and the only important hyperparameter to fit was `medv`. With boosting, there are more parameters: `n.trees` controlls how many iterations we have. Boosting tends to not be very sensitive to this value, but it is possible to under- or over-fit by using too few or too many; `shrinkage` controlls how quickly we add the trees up; `interteraction.depth`, which controls how complex the trees we use at each iteration can be.
+
+Using cross-validation or a training / test dataset split, we can fit all these parameters given a good-size dataset. I'll leave this as an exercise, since the code for optimizing three different tuning parameters would be tedious for me to read and for you to write. But it wouldn't involve any ideas we haven't already seen when fitting parameters using cross-validation or training / test data splits.
+
+## Next Post
+
+I hope you enjoyed this tutorial on trees, random forests, and boosting in `R`, which was based on Chapter 8 of ISLR. Next post, we'll look at a different classification method which became popular in the 1990's, *support vector machines*.

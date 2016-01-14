@@ -72,7 +72,7 @@ img {
 <div id="linear-discriminant-analysis" class="section level2">
 <h2>Linear Discriminant Analysis</h2>
 <p>What is linear discriminant analysis, or LDA? It’s what’s known as a “probabilistic generative” model for classification.</p>
-<p>The logistic regression we looked at last post is what we call a “probabilistic discriminant method” because it makes not statement about the distribution of the coefficients <span class="math">\(X\)</span>, and instead seeks to find a function to estimate the conditional probability <span class="math">\[
+<p>The logistic regression we looked at last post is what we call a “probabilistic discriminant method” because it makes no statement about the distribution of the coefficients <span class="math">\(X\)</span>, and instead seeks to find a function to estimate the conditional probability <span class="math">\[
 P(Y=1|X).
 \]</span></p>
 <p>A probabilistic generative approach, on the other hand, seeks to model the randomness in <span class="math">\(X\)</span> by estimating <span class="math">\[
@@ -180,10 +180,10 @@ mean(predictions == test_df$Direction)
 table(predictions, test_df$Direction)
 #&gt;            
 #&gt; predictions Down  Up
-#&gt;        Down   39  35
-#&gt;        Up     72 106
+#&gt;        Down   37  34
+#&gt;        Up     74 107
 mean(predictions == test_df$Direction)
-#&gt; [1] 0.5753968</code></pre>
+#&gt; [1] 0.5714286</code></pre>
 <p>Here we see that for <code>k = 100</code>, KNN is doing about as well as logistic regression and LDA did: we correctly guess the direction of around 55% of the market moves, using the previous two days’ returns as our covariates.</p>
 </div>
 <div id="next-post" class="section level2">
