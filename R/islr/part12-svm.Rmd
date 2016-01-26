@@ -1,0 +1,92 @@
+---
+title: 'Introduction to Statistical Learning part 12: Support Vector Machines
+author: "Steven Troxler"
+date: "January 6, 2016"
+output: html_document
+---
+
+Welcome to the twelfth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). Following along with the lab videos from the authors' online course, we're going to do something a little unusual today, to introduce support vector machines.
+
+Since we've already seen working with data and cross-validation for several models, we don't really need to walk through yet another example. Instead, we'll show how to use the SVM libraries in R but work with some small simulated datasets, and learn how to make some cool plots to visualize the models we are fitting in two dimensions.
+
+
+## Generating data
+
+In support vector machines, instead of using 0 and 1 to encode the two classes, we use 1 and -1. Let's generate some data:
+```{r}
+set.seed(10111)
+x <- matrix(rnorm(40), 20, 2)
+y <- rep(c(-1, 1), c(10, 10))
+x[y==1,] <- x[y==1,] + 1
+```
+
+Above, we generated a length-20 `y` vector with the first 10 entries 1 and the last 10 entries -1. Initially `x` was standard normal, but then we took all the x's for `y == 1` and added 1 to both columns. Let's take a look. We add 3 to `y` so that we'll get red and blue (using -1 or 0 for color is an error, and if we do `y + 2` we get black and green):
+```{r}
+plot(x, col=y+3, pch=19)
+```
+
+## Fitting a linear SVM
+
+We'll use the `e1071` package for fitting SVM in R. To run our model, we'll convert `x` and `y` into a `data.frame` and run the model with a formula, as we do with many other models.
+```{r}
+library(e1071)
+df <- data.frame(x, y = as.factor(y))
+svmfit0 <- svm(y ~ ., data = df, kernel = "linear", cost=10, scale=FALSE)
+print(svmfit0)
+```
+
+There's a built-in plot method for svm, but it doesn't offer control over colors, and it swaps the axes of x1 and x2:
+```{r}
+plot(svmfit0, df)
+```
+
+We're going to create a nicer plot by hand. In the process, we'll learn some tricks for making nice demo plots of classifiers in R, which is a nice way to impress your boss or your date (it never fails on a date, trust me).
+
+The first step of making nice classification plots is to form a grid, since then we can evaluate functions on the grid in order to plot colors, contours, and other cool things. We'll make a function that makes a grid of values covering the range of a 2d data matrix `x`. Note how we use apply to compute the range of the columns, which outputs a 2x2 matrix where the first row is the minimum and the second row is the maximum of each column. The `expand.grid` makes a lattice for us once whe have the values for each variable.
+```{r}
+make_grid <- function(x, n=75) {
+  x_range <- apply(x, 2, range)
+  x1s <- seq(from=x_range[1,1], to=x_range[2,1], length=n)
+  x2s <- seq(from=x_range[1,2], to=x_range[2,2], length=n)
+  expand.grid(X1=x1s, X2=x2s)
+}
+```
+
+Let's make a grid and take a look at its format:
+```{r}
+x_grid <- make_grid(x)
+x_grid[1:10,]
+```
+
+The next step is to apply our model's `predict` function to each point, which gives us a grid of y values. Then, we can plot the grid, and use the `points` function to overlay our data.
+```{r}
+y_grid <- predict(svmfit0, x_grid)
+plot(x_grid, col=c("red", "blue")[as.numeric(y_grid)], pch=10, cex=.2)
+points(x, col=y+3, pch=19)
+points(x[svmfit0$index,], pch=5, cex=2)
+```
+
+Note the inconsistency in how we are doing colors. For a real application, we'd want to clean that up, but it's a result of the fact that the outputted y is -1 / 1 valued, but is also a factor. So by using `as.numeric()` on it, we get a 0 / 1 valued version which we can use as an index to the vector `c("red", "blue")`.
+
+Also note how we put diamonds around the support vectors by using `svmfit0$index` and a different `pch` with a bit `cex`. The `cex` argument is for "character expansion": each of the plotting characters has a default size, and `cex` can be used as an adjustment factor to get different sizes. Here we use it to make the background grid points small and the diamonds that surround the support vectors big.
+
+It's possible to also plot in the decision boundary and the margin for linear SVM. See the [lab video lecture](https://youtu.be/qhyyufR0930) for details. I'm goint to move on to the nonlinear case now.
+
+## Non-linear SVM
+
+The only change we need to make to our script is to use a "radial" kernel:
+```{r}
+svmfit1 <- svm(y ~ ., data = df, kernel = "radial", cost=10, scale=FALSE)
+print(svmfit1)
+x_grid <- make_grid(x)
+y_grid <- predict(svmfit1, x_grid)
+plot(x_grid, col=c("red", "blue")[as.numeric(y_grid)], pch=10, cex=.2)
+points(x, col=y+3, pch=19)
+points(x[svmfit1$index,], pch=5, cex=2)
+```
+
+Although the true optimal decision boundary is linear in this case (since the two classes' `x`s are distributed as Gaussian, we know this from LDA), we still get a pretty reasonable model. We may have overfit the data a bit more, since there are now no mis-classified examples and there were a few in the linear model. Note how the radial SVM creates a kind of circle of y, and how the support vectors are spread around the boundary of the circle instead of being lined up as they were in the linear case.
+
+## Next post
+
+I hope you've enjoyed this quick demo on making classifier plots in the context of SVMs. Next post, we'll start looking a Chapter 10 of ISLR, which is the last chapter and covers unsupervised methods.

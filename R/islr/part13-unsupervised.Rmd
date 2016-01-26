@@ -1,0 +1,121 @@
+---
+title: 'Introduction to Statistical Learning part 13: Unsupervised Methods'
+author: "Steven Troxler"
+date: "January 6, 2016"
+output: html_document
+---
+
+Welcome to the last post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). Today we are going to finish up by looking at three unsupervised learning methods: principle components analysis, k-means clustering, and hierarchical clustering.
+
+## Principle Components Analysis
+
+We actually looked briefly at principle components analysis (PCA) in our very first post, where we did it by hand using singular value decomposition. This time, we'll see how to use R tools to run PCA for us and visualize the results. We'll use the `USArrests` dataset, which has the number of arrests per 100,000 people for a variety of crimes, in each of the 50 states, as well as the percentage of the popuation living in urban areas:
+```{r}
+summary(USArrests)
+```
+
+
+Principle components analysis is implemented the base `R` packages' `prcomp` function.
+```{r}
+pr_components <- prcomp(USArrests, scale=TRUE)
+```
+
+If we take a look at the output, we see that it has a number of parts. The center is the mean of the data, and the scale is the normalization used (because we passed `scale=TRUE`, the analysis normalized each varible, which is usually a good idea for PCA):
+```{r}
+names(pr_components)
+pr_components$center
+pr_components$scale
+```
+
+The `rotation` entry gives the loadings of each component in the original variables. The components are basis functions, and these are the values indicating how to convert between the data column basis and the principle component basis:
+```{r}
+pr_components$rotation
+```
+
+The `x` entry in the output is the original data, represented in terms of the principle components basis. This is often what we want to look at in a plot when using a dimensionality reduction method like PCA, and the `biplot` function makes it easy to view the data this way:
+```{r}
+biplot(pr_components, scale=0)
+```
+
+This plot shows the different states and how they appear in terms of the two principle components. It also show how the original axes of the data appear in the graph, which helps us interpret the andwer (it appears, for example, that Nevada has high crime rates).
+
+## Random data for clustering
+
+We'll use simulated data for this example. We randomly generate 15 points from three normal distributions centered at (0, 0), (1, -1), and (-1, 0).
+```{r}
+set.seed(2536908)
+x=0.25*matrix(rnorm(45*2), ncol=2)
+which_group=rep(1, 45)
+x[1:15,1] <- x[1:15,1]+1
+x[1:15,2] <- x[1:15,2]-1
+which_group[16:30] <- 2
+x[31:45,1] <- x[31:45,1]-1
+which_group[31:45] <- 3
+```
+
+Let's take a look at the data:
+```{r}
+plot(x, col=which_group, cex=2)
+```
+
+## K-means clustering
+
+K-means is our first example of a *clustering algorithm*. What it does is try to find groups of tightly grouped data, or 'clusters'. It doesn't have a notion of what the right answer is - unlike in classifications, we don't have class labels. Rather, we are just trying to segregate the data into useful groups, to see strucutre.
+
+K-means is an iterative algorithm, which starts with random cluster centers, and keeps updating the cluster centers to be the mean of all the data points. To run it in R, we use the `kmeans` function, which is in the base packages. Since the starting points are random and not all runs find the same clusters, there's an `nstart` variable that tells R how many times to fit `kmeans` with different random starts; it then takes the one that gives clusters with the smallest sum of square distances to the mean.
+```{r}
+kmeans_fit <- kmeans(x, 3, nstart=10)
+kmeans_fit
+```
+
+We can see how well our clusters match the original points by plotting the cluster assigments. The `kmeans_fit$cluster` lets us do this:
+```{r}
+plot(x, col=which_group, cex=2)
+points(x, col=(kmeans_fit$cluster), pch=20)
+```
+
+We can see that although the colors differ (since the order isn't well-defined), the clusters mostly match up to the actual group from which the points came from, although there's a little bit of mixing. We can also look at a confusion matrix with the `table` command:
+```{r}
+table(kmeans_fit$cluster, which_group)
+```
+
+#### Mixture models
+
+A more elaborate statistical procedure that can be similar to K-means but generalizes to some types of non-numerical data is *mixture models*. Lately I've been developing a prototype distributed mixture model for Paxata, a company which provides some cool tools on top of Apache Spark. Hopefully I'll have a chance to do some tutorials on that algorithm in future posts.
+
+## Hierarchical clustering
+
+We'll continue using the same data to demo hierarchical clustering, which is implemented in R's `hclust` function. Hierarchical clustering uses tree-based models to aggregate data into a nested set of clusters. The clusters start out as individual data points, and then the data are joined together using a rule and a notion of the distance between points. A each stage, the two clusters which are closest get grouped together into a bigger cluster, and so we build the tree from the leaves up until all of the clusters have been combined.
+
+There are three common choices for the rule: single linkage, average linkage, and complete linkage.
+
+In single linkage, clusters are joined based on how close together their closest points are. Since a big cluster tends to be close to lots of things, single linkage often leads to one really big cluster and a bunch of small clusters around it, and it's often less useful.
+
+Average linkage says that what we care about is the average distance between all the points in any two clusters. This usually leads to less extreme behavior than single linkage, with the main cluster not quite as big. But it often still gives fewer big clusters than we'd like.
+
+The third option, and the one which we'll see works best with this data, is complete linkage. This says the distance between two clusters is the biggest distance between any two of their data points. This method tends to give lots of clusters of similar size.
+
+Let's try it out, focusing on complete linkage. Hierarchical clustering expects a distance matrix as input. This is a matrix indicating how far apart any two points are, and it allows us to use all sorts of different measures of distance, not just Euclidean. For example with text data, we could use edit distance, or some other measure of how much two strings differ. Since our data is just 2d numerical data, we want Euclidan distance, and R's `dist` function will make this distance matrix for us.
+```{r}
+cluster_tree <- hclust(dist(x), method="complete")
+plot(cluster_tree)
+```
+
+This plot is pretty cool, but it's not immediately obvious how well we are doing. It's promising that we see three big clusters near the top. But with a little twist, we can use our own labels on the bottom to see whether the clusters `hclust` finds corresponds to the different groups in our simulated data:
+```{r}
+plot(cluster_tree, labels=which_group)
+```
+
+Indeed, our clusters look pretty good! We can get a numerical measure of how well they line up with the groups in our data by using `cutree` to get cluster assignments. It takes an input for the number of clusters, and walks down the tree to find tha many.
+```{r}
+assignments <- cutree(cluster_tree, 3)
+table(assignments, which_group)
+```
+
+We see that for our simulated data, hierarchical clustering and kmeans both make the same two errors, which are points from group 2 that lie closer to group 1.
+
+## Conclusion
+
+This is the end of my series running through ISLR. I hope you've enjoyed it. If you are interested to learn more, I recommend reading the book and working through all the labs yourself. If you are mathematically inclined, there's a more advanced text by some of the same authors, *Elements of Statistical Learning*, which goes into more detail and is, like ISLR, freely available online. There are also great courses on Coursera and elsewhere, and example data problems on [Kaggle](kaggle.com)
+
+Now that I've finished running through ISLR, I'm hoping to do some blog posts about python and linux skills for data science, some software engineering ideas that I think data scientists can benefit from, and some more mathematical topics and tutorials diving in more detail to some models I've used.
