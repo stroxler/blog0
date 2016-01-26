@@ -5,13 +5,11 @@ date: "January 6, 2016"
 output: html_document
 ---
 
-Welcome to the sixth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the last few posts, we looked at regression and classification using several different models.
-
-This post, we'll return to the horsepower vs miles per gallon estimation on the `Auto` dataset, and look at how to work with cross-validation in R.
+Welcome to the sixth post in my series on [An Introduction to Statistical Learning with Applications in R](http://www-bcf.usc.edu/~gareth/ISL/). In the last few posts, we looked at regression and classification using several different models. This post, we'll look at the `Auto` dataset while learning how to work with cross-validation in R.
 
 ## The Auto dataset
 
-Let's start out by taking a look at the auto data:
+Let's start out by taking a look at the auto data. We'll be running cross-validation in the context of predicting `mpg` based on `horsepower`:
 ```{r, message=FALSE}
 library(ggplot2)
 library(dplyr)
@@ -19,7 +17,7 @@ auto <- tbl_df(ISLR::Auto)
 ggplot(auto, aes(x=horsepower, y=mpg)) + geom_point()
 ```
 
-We see a strong relationship between horsepower and miles per gallon, but it isn't quite linear. We are going to use cross-validation to help us fit a polynomial to this data using linear regression. To do this, we'll use the `cv.glm` function from the `boot` package.
+We see a strong relationship between horsepower and miles per gallon, but it isn't quite linear. Cross-validation will help us fit a polynomial to this data. Rather than coding cross-validation by hand, we'll use the `cv.glm` function from the `boot` package.
 
 ## Cross validation
 
@@ -29,17 +27,17 @@ Cross validation is one of the key ideas in machine learning, because it lets us
 
 To validate our model, we break our data into parts. We use some of the data for training a model, and the rest to judge how good the fit is. This lets us measure the best value of hyperparameters like the number of polynomial terms.
 
-We can't easily evaluate a hyperparameter like the polynomial degree the training data, because the fit on the training data always gets better when we make the model more complex. For linear regression, we can try to use hypothesis tests or AIC to control for this, but in more complicated models we might not have even that.
+We can't easily evaluate a hyperparameter like the polynomial degree the training data, because the fit on the training data always improves when we make the model more complex. For linear regression, we can try to use hypothesis tests or AIC to control for this, but in more complicated models we might not even be able to use these types of methods, since they require analytic tractability.
 
-But if we have a test dataset to measure fit on, this problem isn't so serious: by making an overly complex model and overfitting the training data, we'll see that our test data gets worse.
+But if we have a test dataset to measure fit on, this problem of being unable to use the training data for evaluating complexity parameters goes away: by making an overly complex model and overfitting the training data, we'll see that our test data gets worse, and we'll usually pick a good model if we maximize predictive accuracy on the test data.
 
 ### Cross-validation folds
 
-When a model is expensive to fit and there is a lot of data, often we might just split the data into a training and test set as described above. But when we do that, we lose some information because the split is arbitrary. In K-fold cross-validation, we partition the data into $K$ chunks instead, and we use each chunk as a training set once, while using the $K-1$ other chunks as the training data.
+When a model is expensive to fit and there is plenty of data, often we just split the data into just one training and test partition as described above. But when we do that, we lose information because the split is arbitrary. By making sure every data point appears in a test set at some point, we can get less noisy estimates of out-of-sample error. In K-fold cross-validation, we partition the data into $K$ chunks instead, and we use each chunk as a training set once, while using the $K-1$ other chunks as the training data.
 
-For example, in three-fold cross validation we would split our dataset into three equal chunks. We would take the first two chunks to train a model, then measure the error on the third chunk. Then we'd train another model on the first and last chunk, fitting it on the middle. Finally, we'd train on the last two chunks and fit on the first, and then add up all the errors.
+For example, in three-fold cross validation we would split our dataset into three equal chunks. We take the first two chunks to train a model, then measure the error on the third chunk. Then we train another model on the first and last chunk, fitting it on the middle. Finally, we train on the last two chunks and fit on the first, and then add up all the errors.
 
-One common type of cross-validation is leave-one-out cross validation, where $K = M$, the number of data points. For a complex model, this type of cross validation is very expensive since we have to fit the model many, many times. It also tends to be a slightly poorer estimate of fit, for reasons that have to do with the variance of the cross-validation error estimate. But as we'll see, for linear regression we can compute the leave-one-out cross validation error almost for free, which makes it appealing.
+A common special case is leave-one-out cross validation, where $K = M$, the number of data points. For a complex model, this type of cross validation is very expensive since we have to fit the model many, many times. It also tends to be a slightly poorer estimate of out-of-sample error compared to using a few folds, for reasons that have to do with the variance of the cross-validation error estimate. But as we'll see, for linear regression we can compute the leave-one-out cross validation error almost for free, which makes it appealing.
 
 It's important that the split be meaningful. Most of the time, it should be random, although there are exceptions like time-series where people use block cross-validation, keeping related points together. (The split we used on the `Smarket` data in the last two posts is an example of this).
 
@@ -50,6 +48,7 @@ For generalized linear models, we can get cross-validation using the `boot` pack
 Let's try it out, and estimate the error for a linear regression of `mpg` on `horsepower` using ten-fold cross validation. Note that when we call `glm` without getting a family, it fits a plain linear model; we need to use `glm` instead of `lm` because `cv.glm` expects a `glm` object as input.
 ```{r}
 library(boot)
+set.seed(421698)
 model <- glm(mpg ~ horsepower, data=auto)
 cv.glm(data = auto, glmfit = model, K = 10)$delta
 ```
@@ -100,7 +99,8 @@ for (d in degrees) {
   cv_errors_loo[d] = cv.lm.loo(model)
   cv_errors_fld[d] = cv.glm(data = auto, glmfit = model, K = 10)$delta[1]
 }
-plot(degrees, cv_errors_loo, col = 'blue', type='l')
+plot(degrees, cv_errors_loo, col = 'blue', type='l',
+     xlab='degree of polynomial', ylab='estimated mse')
 lines(degrees, cv_errors_fld, col = 'green')
 ```
 
