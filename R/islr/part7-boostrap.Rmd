@@ -96,10 +96,10 @@ Cross-validation and the bootstrap are both useful approaches for working with c
 
 As an example of where this could get you into trouble: I did financial research at a hedge fund for a few years. With financial time-series data, you really do see statistical patterns come and go. The problem isn't so much that trends don't exists, it's that they are weak and short-lived, and they might disappear before you can recover your trading costs if you try to act on them.
 
-In this setting, if you were to do a random bootstrap or cross-validation of your data to judge how good a model is, you'd mislead your self because the data is not iid. Nearby points tend to be much more similar than far away points, which makes prediction of new chunks of data much harder than prediction of randomly selected data.
+In this setting, if you were to do a random bootstrap or cross-validation of your data to judge how good a model is, you'd mislead yourself because the data is not iid. Nearby points tend to be much more similar than far away points, which makes prediction of new chunks of data much harder than prediction of randomly selected data.
 
-There are various ways of dealing with this, for example sampling big blocks of data rather than just individual data points; under some stationary assumptions that are often reasonable, this will work much better. In general, you need to *think* before blindly applying methods, even nonparametric methods like the bootstrap and cross-validation.
+There are various ways of dealing with this. For example, we can sample big blocks of data rather than just individual data points; under some stationary assumptions that are often reasonable, this will work much better. In general, you need to *think* before blindly applying methods, even nonparametric methods like the bootstrap and cross-validation.
 
 ## Next post
 
-This post concludes Chapter 5 of ISLR, which was on sampling methods. In the next post, we'll start looking at Chapter 6, which discusses rigorous ways of fitting complexity hyperparameters in linear models.
+This post concludes Chapter 5 of ISLR, which is on sampling methods. In the next post, we'll start looking at Chapter 6, which discusses rigorous ways of fitting complexity hyperparameters in linear models.
